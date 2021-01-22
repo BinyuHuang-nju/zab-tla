@@ -1,7 +1,7 @@
 -------------------------------- MODULE Zab --------------------------------
 EXTENDS Integers, FiniteSets, Sequences, Naturals, TLC
 
-\* The set of server IDs
+\* The set of server identifiers
 CONSTANT Server
 
 \* The set of requests that can go into history
@@ -37,6 +37,13 @@ VARIABLE leaderOracle
 \* The history of servers as the sequence of transactions
 VARIABLE history
 
+\* The messages repersenting requests and responses sent from one server to another
+VARIABLE msgs
+
+PhaseF11(i, j) == /\ state[i] = Follower
+                  /\ leaderOracle[i] = j
+                  
+
 (*Integrity == \A l, f \in Server, msg \in msgs:
                 /\ state[l] = Leader /\ state[f] = Follower
                 /\ msg.type = COMMIT /\ msg \in histroy[f]
@@ -64,7 +71,7 @@ IN Ie' == hf*)
 
 =============================================================================
 \* Modification History
-\* Last modified Thu Jan 21 22:55:25 CST 2021 by Dell
+\* Last modified Fri Jan 22 22:00:41 CST 2021 by Dell
 \* Created Sat Dec 05 13:32:08 CST 2020 by Dell
 
 
