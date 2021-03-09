@@ -90,8 +90,11 @@ PhaseLeader11(i) == /\ state[i] = ProspectiveLeader
                                        /\ m.mepoch = currentEpoch[i]
                     /\ \E Q \in Quorums:
                         LET mset == {m \in msgs: /\ m.mtype = CEPOCH
-                                                 /\ m.msource \in Q
-                                                 /\ }
+                                                 /\ m.msource \in Q 
+                                                 /\ m.mdest = i}
+                            newEpoch == Maximum({m.mepoch: m \in mset}) + 1
+                        IN /\ \A s \in Q: \E m \in mset: m.msource = s
+                            
 (*Integrity == \A l, f \in Server, msg \in msgs:
                 /\ state[l] = Leader /\ state[f] = Follower
                 /\ msg.type = COMMIT /\ msg \in histroy[f]   
@@ -119,7 +122,7 @@ IN Ie' == hf*)
 
 =============================================================================
 \* Modification History
-\* Last modified Mon Mar 08 22:36:43 CST 2021 by Dell
+\* Last modified Tue Mar 09 22:43:01 CST 2021 by Dell
 \* Created Sat Dec 05 13:32:08 CST 2020 by Dell
 
 
