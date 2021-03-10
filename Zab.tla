@@ -23,10 +23,12 @@ Quorums == {Q \in SUBSET Server: Cardinality(Q)*2 > Cardinality(Server)}
 ASSUME QuorumsAssumption == /\ \A Q \in Quorums: Q \subseteq Server
                             /\ \A Q1, Q2 \in Quorums: Q1 \cap Q2 # {}                           
 
-(*Here need to be added about Messages*)
+(*Here need to be added about Messages
 Messages == [mtype:{CEPOCH}, msource:Server, mdest:Server, mepoch:Epoches]
             \union
             [mtype:{NEWEPOCH}, msource:Server, mdest:SUBSET Server, mepoch:Epoches]
+            \union
+            [mtype:{ACK_E}, msource:Server, mdest: Server, lastEpoch:Epoches, hf:]*)
 
 None == CHOOSE v: v \notin Value
 
@@ -62,7 +64,7 @@ TypeOK == /\ state \in [Server -> {Follower, Leader, ProspectiveLeader}]
           /\ currentEpoch \in [Server -> Epoches]
           /\ leaderEpoch \in [Server -> Epoches]
           /\ leaderOracle \in [Server -> Server]
-          /\ msgs \subseteq Messages
+          \*/\ msgs \subseteq Messages
 ----------------------------------------------------------------------------
 Init == /\ state = [s \in Server |-> Follower]
         /\ currentEpoch = [s \in Server |-> 0]
@@ -94,7 +96,33 @@ PhaseLeader11(i) == /\ state[i] = ProspectiveLeader
                                                  /\ m.mdest = i}
                             newEpoch == Maximum({m.mepoch: m \in mset}) + 1
                         IN /\ \A s \in Q: \E m \in mset: m.msource = s
-                            
+                           /\ currentEpoch' = [currentEpoch EXCEPT ![i] = newEpoch]
+                           /\ leaderEpoch' = [leaderEpoch EXCEPT ![i] = newEpoch]
+                           /\ Send([mtype   |-> NEWEPOCH,
+                                    msource |-> i,
+                                    mdest   |-> Server \ {i},
+                                    mepoch  |-> newEpoch])
+                    /\ UNCHANGED <<state, leaderOracle, history>>
+
+PhaseFollower12(i) == /\ state[i] = Follower
+                      /\ \E m \in msgs: /\ m.mtype = NEWEPOCH
+                                        /\ i \in m.mdest
+                                        /\ currentEpoch[i] < m.mepoch
+                                        /\ leaderOracle' = [leaderOracle EXCEPT ![i] = m.msource]
+                                        /\ currentEpoch' = [currentEpoch EXCEPT ![i] = m.mepoch]
+                                        /\ LET qm == [mtype   |-> NEWEPOCH, 
+                                                      msource |-> m.msource, 
+                                                      mdest   |-> m.mdest\{i}, 
+                                                      mepoch  |-> m.mepoch]
+                                           IN msgs' = (msgs \ {m}) \union {qm}
+                                        /\ Send([mtype     |-> ACK_E,
+                                                 msource   |-> i,
+                                                 mdest     |-> m.msource,
+                                                 lastEpoch |-> leaderEpoch[i],
+                                                 hf        |-> history[i]])
+                      /\ UNCHANGED <<state, leaderEpoch, history>>
+                      
+PhaseLeader12and21(i) == /\ state[i] = ProspectiveLeader                 
 (*Integrity == \A l, f \in Server, msg \in msgs:
                 /\ state[l] = Leader /\ state[f] = Follower
                 /\ msg.type = COMMIT /\ msg \in histroy[f]   
@@ -122,7 +150,7 @@ IN Ie' == hf*)
 
 =============================================================================
 \* Modification History
-\* Last modified Tue Mar 09 22:43:01 CST 2021 by Dell
+\* Last modified Wed Mar 10 15:03:37 CST 2021 by Dell
 \* Created Sat Dec 05 13:32:08 CST 2020 by Dell
 
 
