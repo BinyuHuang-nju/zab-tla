@@ -33,12 +33,13 @@ Quorums == {Q \in SUBSET Server: Cardinality(Q)*2 > Cardinality(Server)}
 ASSUME QuorumsAssumption == /\ \A Q \in Quorums: Q \subseteq Server
                             /\ \A Q1, Q2 \in Quorums: Q1 \cap Q2 # {}                           
 
-(*Here need to be added about Messages
+(*
 Messages == [mtype:{CEPOCH}, msource:Server, mdest:Server, mepoch:Epoches]
             \union
             [mtype:{NEWEPOCH}, msource:Server, mdest:SUBSET Server, mepoch:Epoches]
             \union
-            [mtype:{ACK_E}, msource:Server, mdest: Server, lastEpoch:Epoches, hf:]*)
+            [mtype:{ACK_E}, msource:Server, mdest: Server, lastEpoch:Epoches, hf:]
+*)
 
 None == CHOOSE v: v \notin Value
 
@@ -60,16 +61,17 @@ VARIABLE leaderOracle
 VARIABLE history
 
 \* The messages repersenting requests and responses sent from one server to another.
+\* msgs[i][j] means the input buffer of server j from server i.
 VARIABLE msgs
 
-\* The set of followers who has successfully sent CEPOCH to pleader.
-VARIABLE cepochReceived
+\* The set of followers who has successfully sent CEPOCH to pleader in pleader.
+VARIABLE cepochRecv
 
-\* The set of followers who has successfully sent ACK-E to pleader.
-VARIABLE ackeReceived
+\* The set of followers who has successfully sent ACK-E to pleader in pleader.
+VARIABLE ackeRecv
 
-\* The set of followers who has successfully sent ACK-LD to pleader.
-VARIABLE ackldReceived
+\* The set of followers who has successfully sent ACK-LD to pleader in pleader.
+VARIABLE ackldRecv
 
 \* ackIndex[i][j] means leader i has received how many ACK messages from follower j.
 \* So ackIndex[i][i] is not used.
@@ -78,26 +80,40 @@ VARIABLE ackIndex
 \* commitIndex[i] means leader i has committed how many proposals and sent COMMIT messages.
 VARIABLE commitIndex
 
-vars == <<state, currentEpoch, leaderEpoch, leaderOracle, history, msgs>>
+VARIABLE leaderHaveSentNEWEPOCH
+
+\* Hepler matrix for follower to stop sending CEPOCH to pleader in followers.
+VARIABLE newepochRecv
+
+serverVars == <<state, currentEpoch, leaderEpoch, leaderOracle, history>>
+leaderVars == <<cepochRecv, ackeRecv, ackldRecv, ackIndex, commitIndex>>
+
+vars == <<serverVars, msgs, leaderVars, newepochRecv>>
 ----------------------------------------------------------------------------
 LastZxid(his) == IF Len(his) > 0 THEN <<his[Len(his)].epoch,his[Len(his)].counter>>
                                  ELSE <<-1, -1>>
 
 \* Add a message to msgs
-Send(m) == msgs' = msgs \union {m}
+(*Send(m) == msgs' = msgs \union {m}*)
+Send(i, j, m) == msgs' = [msgs EXCEPT ![i][j] = Append(msgs[i][j], m)]
 
 \* Remove a message from msgs
-Discard(m) == msgs' = msgs \ {m}
+(*Discard(m) == msgs' = msgs \ {m}*)
+Discard(i, j) == msgs' = [msgs EXCEPT ![i][j] = Tail(msgs[i][j])]
+
+\* Leader/Pleader broadcasts a message to all other servers
+Broadcast(i, m) == msgs' = [ii \in Server |-> [ij \in Server |-> IF ii = i THEN Append(msgs[ii][ij], m)
+                                                                           ELSE msgs[ii][ij] ]] 
 
 \* Combination of Send and Discard
 Reply(response, request) == msgs' = (msgs \union {response}) \ {request}
 
-(*TypeOK == /\ msgs \in [Server -> [Server ->]]*)
+(*
 TypeOK == /\ state \in [Server -> {Follower, Leader, ProspectiveLeader}]
           /\ currentEpoch \in [Server -> Epoches]
           /\ leaderEpoch \in [Server -> Epoches]
           /\ leaderOracle \in [Server -> Server]
-          \*/\ msgs \subseteq Messages
+*)
 ----------------------------------------------------------------------------
 \* Define initial values for all variables
 Init == /\ state        = [s \in Server |-> Follower]
@@ -105,11 +121,19 @@ Init == /\ state        = [s \in Server |-> Follower]
         /\ leaderEpoch  = [s \in Server |-> 0]
         /\ leaderOracle = [s \in Server |-> NullPoint]
         /\ history      = [s \in Server |-> << >>]
-        /\ msgs         = {}
+        \* /\ msgs      = {}
+        /\ msgs         = [i \in Server |-> [j \in Server |-> << >>]]
+        /\ cepochRecv   = [s \in Server |-> {}]
+        /\ ackeRecv     = [s \in Server |-> {}]
+        /\ ackldRecv    = [s \in Server |-> {}]
+        /\ ackIndex     = [i \in Server |-> [j \in Server |-> 0]]
+        /\ commitIndex  = [i \in Server |-> 0]
+        /\ newepochRecv = [i \in Server |-> FALSE]
 
 \* A server becomes pleader and a quorum servers knows that.
 
 \* In phase f11, follower sends f.p to pleader via CEPOCH.
+(*
 DiscoveryFollower1(i) == 
         /\ state[i] = Follower
         /\ leaderOracle[i] /= NullPoint
@@ -123,9 +147,19 @@ DiscoveryFollower1(i) ==
                        mdest   |-> leader,
                        mepoch  |-> currentEpoch[i]])
         /\ UNCHANGED <<state, currentEpoch, leaderEpoch, leaderOracle, history>>
+*)
+DiscoveryFollower1(i) ==
+        /\ state[i] = Follower
+        /\ leaderOracle[i] /= NullPoint
+        /\ \lnot newepochRecv[i]
+        /\ LET leader == leaderOracle[i]
+           IN Send(i, leader, [mtype  |-> CEPOCH,
+                               mepoch |-> currentEpoch[i]])
+        /\ UNCHANGED <<serverVars, leaderVars, newepochRecv>>
 
 \* In phase l11, pleader receives CEPOCH from a quorum, and choose a new epoch e'
 \* as its own l.p and sends NEWEPOCH to followers.                 
+(*
 DiscoveryLeader1(i) ==
         /\ state[i] = ProspectiveLeader
         /\ ~\E m \in msgs: /\ m.mtype = NEWEPOCH
@@ -144,6 +178,29 @@ DiscoveryLeader1(i) ==
                         mdest   |-> Server \ {i},
                         mepoch  |-> newEpoch])
         /\ UNCHANGED <<state, leaderOracle, history>>
+*)
+HandleCEPOCH(i, j) ==
+        /\ state[i] = ProspectiveLeader
+        /\ msgs[j][i] /= << >>
+        /\ msgs[j][i][1].mtype = CEPOCH
+        /\ \/ \* redundant message - just delete
+              /\ j \in cepochRecv[i]
+              /\ UNCHANGED <<currentEpoch, cepochRecv>>
+           \/ \* new message - modify currentEpoch and cepochRecv
+              /\ j \notin cepochRecv[i]
+              /\ LET newEpoch == Maximum({currentEpoch[i],msgs[j][i][1].mepoch})
+                 IN currentEpoch' = [currentEpoch EXCEPT ![i] = newEpoch]
+              /\ cepochRecv' = [cepochRecv EXCEPT ![i] = cepochRecv[i] \union {j}]
+        /\ Discard(j, i)
+        /\ UNCHANGED <<state, leaderEpoch, leaderOracle, history, newepochRecv, ackeRecv, ackldRecv, ackIndex, commitIndex>>
+
+DiscoveryLeader1(i) ==
+        /\ state[i] = ProspectiveLeader
+        /\ cepochRecv[i] \in Quorums
+        /\ currentEpoch' = [currentEpoch EXCEPT ![i] = currentEpoch[i] + 1]
+        /\ Broadcast(i,[mtype  |-> NEWEPOCH,
+                        mepoch |-> currentEpoch[i]])
+        /\ UNCHANGED <<state, leaderEpoch, leaderOracle, history, 
 
 \* In phase f12, follower receives NEWEPOCH. If e' > f.p then sends back ACKE,
 \* and ACKE contains f.a and hf to help pleader choose a newer history.
@@ -166,8 +223,11 @@ DiscoveryFollower2(i) ==
                                    hf        |-> history[i]])
         /\ UNCHANGED <<state, leaderEpoch, history>>
                       
-DiscoveryLeader2plus(i) == /\ state[i] = ProspectiveLeader                 
-(*Integrity == \A l, f \in Server, msg \in msgs:
+DiscoveryLeader2plus(i) == /\ state[i] = ProspectiveLeader   
+
+(*msgs' = [ii \in Server |-> [ij \in Server |-> IF ii = i THEN Append(msgs[ii][ij], m)
+                                                        ELSE msgs[ii][ij] ]]              
+Integrity == \A l, f \in Server, msg \in msgs:
                 /\ state[l] = Leader /\ state[f] = Follower
                 /\ msg.type = COMMIT /\ msg \in histroy[f]   
                 => msg \in history[l]
@@ -194,7 +254,7 @@ IN Ie' == hf*)
 
 =============================================================================
 \* Modification History
-\* Last modified Thu Mar 11 22:59:45 CST 2021 by Dell
+\* Last modified Fri Mar 12 22:41:00 CST 2021 by Dell
 \* Created Sat Dec 05 13:32:08 CST 2020 by Dell
 
 
