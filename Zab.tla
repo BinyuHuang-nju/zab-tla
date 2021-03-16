@@ -131,6 +131,8 @@ Broadcast(i, m) == msgs' = [ii \in Server |-> [ij \in Server |-> IF ii = i /\ ij
 Reply(i, j, m) == msgs' = [msgs EXCEPT ![j][i] = Tail(msgs[j][i]),
                                        ![i][j] = Append(msgs[i][j], m)]
 
+Reply2(i, j, m1, m2) == msgs' = [msgs EXCEPT ![j][i] = Tail(msgs[j][i]),
+                                             ![i][j] = Append(Append(msgs[i][j], m1), m2)]
 (*
 TypeOK == /\ state \in [Server -> {Follower, Leader, ProspectiveLeader}]
           /\ currentEpoch \in [Server -> Epoches]
@@ -160,6 +162,8 @@ Init == /\ state              = [s \in Server |-> Follower]
         /\ tempInitialHistory = [s \in Server |-> << >>]
 
 \* A server becomes pleader and a quorum servers knows that.
+Election(i, Q) ==
+        /\ state' = [state EXCEPT ![i] = ProspectiveLeader]
 
 ----------------------------------------------------------------------------
 \* In phase f11, follower sends f.p to pleader via CEPOCH.
@@ -415,6 +419,7 @@ LeaderBroadcast2(i) ==
         /\ UNCHANGED <<serverVars, cepochRecv, ackeRecv, ackldRecv, ackIndex, currentCounter, 
                        sendCounter, initialHistory, tempVars, cepochSent>>
 
+\* In phase f32, follower receives COMMIT and commits transaction.
 FollowerBroadcast2(i, j) ==
         /\ state[i] = Follower
         /\ msgs[j][i] /= << >>
@@ -432,20 +437,48 @@ FollowerBroadcast2(i, j) ==
 
 ----------------------------------------------------------------------------
 DiscardStaleMessage(i) ==
-        /\ state[i] = Follower
         /\ \E j \in Server \ {i}: /\ msgs[j][i] /= << >>
                                   /\ LET msg == msgs[j][i][1]
-                                     IN \/ msg.mtype = CEPOCH
-                                        \/ msg.mtype = ACKE
-                                        \/ msg.mtype = ACKLD
-                                        \/ msg.mtype = ACK
+                                     IN \/ /\ state[i] = Follower
+                                           /\ \/ msg.mepoch < currentEpoch[i]
+                                              \/ msg.mtype = CEPOCH
+                                              \/ msg.mtype = ACKE
+                                              \/ msg.mtype = ACKLD
+                                              \/ msg.mtype = ACK
+                                        \/ /\ state[i] = Leader \/ state[i] = ProspectiveLeader
+                                           /\ msg.mtype /= CEPOCH
+                                           /\ msg.mepoch < currentEpoch[i]     \* Here needs to be added.
                                   /\ Discard(j ,i)
         /\ UNCHANGED <<serverVars, leaderVars, tempVars, cepochSent>>
+
+\* In phase l33, upon receiving CEPO
+LeaderHandleCEPOCHinPhase3(i, j) ==
+        /\ state[i] = Leader
+        /\ msgs[j][i] /= << >>
+        /\ msgs[j][i][1].mtype = CEPOCH
+        /\ LET msg == msgs[j][i][1]
+           IN \/ /\ currentEpoch[i] > msg.mepoch
+                 /\ Reply2(i, j, [mtype  |-> NEWEPOCH,
+                                  mepoch |-> currentEpoch[i]],
+                                 [mtype           |-> NEWLEADER,
+                                  mepoch          |-> currentEpoch[i],
+                                  minitialHistory |-> history[i]])
+              \/ /\ currentEpoch[i] <= msg.mepoch
+                 /\ UNCHANGED msgs
+        /\
 
 StaleLeaderBecomeFollower(i) ==
         /\ \/ state[i] = Leader
            \/ state[i] = ProspectiveLeader
-        /\ \E j \in Server \ {i}: /\ msgs[j][i] /= << >>       
+        /\ \E j \in Server \ {i}: /\ msgs[j][i] /= << >>   
+                                  /\ LET msg == msgs[j][i][1]
+                                     IN /\ currentEpoch[i] < msg.mepoch
+                                        /\ \/ msg.mtype = NEWEPOCH
+                                           \/ msg.mtype = NEWLEADER
+                                           \/ msg.mtype = COMMITLD
+                                           \/ msg.mtype = PROPOSE
+                                           \/ msg.mtype = COMMIT
+                                  /\ state' = [state EXCEPT ![i] = Follower] 
 
 (*   
 DiscoveryLeader1(i) ==
@@ -519,7 +552,7 @@ LivenessProperty1 == \A i, j \in Server, msg \in msgs:
 
 =============================================================================
 \* Modification History
-\* Last modified Mon Mar 15 22:03:43 CST 2021 by Dell
+\* Last modified Tue Mar 16 22:32:01 CST 2021 by Dell
 \* Created Sat Dec 05 13:32:08 CST 2020 by Dell
 
 
