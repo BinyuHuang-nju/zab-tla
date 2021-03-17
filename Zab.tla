@@ -268,7 +268,7 @@ LeaderDiscovery2Sync1(i) ==
                        
 ----------------------------------------------------------------------------
 \* In phase f21, follower receives NEWLEADER. The follower updates its epoch and history,
-\* and send back ACK-LD to pleader.
+\* and sends back ACK-LD to pleader.
 FollowerSync1(i, j) ==
         /\ state[i] = Follower
         /\ msgs[j][i] /= << >>
@@ -281,8 +281,9 @@ FollowerSync1(i, j) ==
                  /\ leaderOracle' = [leaderOracle EXCEPT ![i] = j]
                  /\ history'      = [history      EXCEPT ![i] = msg.minitialHistory]
                  /\ commitIndex'  = [commitIndex  EXCEPT ![i] = 0]
-                 /\ Reply(i, j, [mtype  |-> ACKLD,
-                                 mepoch |-> msg.mepoch])
+                 /\ Reply(i, j, [mtype    |-> ACKLD,
+                                 mepoch   |-> msg.mepoch,
+                                 mhistory |-> msg.minitialHistory])
               \/ \* stale NEWLEADER - discard
                  /\ currentEpoch[i] > msg.mepoch
                  /\ Discard(j, i)
@@ -436,22 +437,7 @@ FollowerBroadcast2(i, j) ==
                        leaderVars, tempVars, cepochSent>>
 
 ----------------------------------------------------------------------------
-DiscardStaleMessage(i) ==
-        /\ \E j \in Server \ {i}: /\ msgs[j][i] /= << >>
-                                  /\ LET msg == msgs[j][i][1]
-                                     IN \/ /\ state[i] = Follower
-                                           /\ \/ msg.mepoch < currentEpoch[i]
-                                              \/ msg.mtype = CEPOCH
-                                              \/ msg.mtype = ACKE
-                                              \/ msg.mtype = ACKLD
-                                              \/ msg.mtype = ACK
-                                        \/ /\ state[i] = Leader \/ state[i] = ProspectiveLeader
-                                           /\ msg.mtype /= CEPOCH
-                                           /\ msg.mepoch < currentEpoch[i]     \* Here needs to be added.
-                                  /\ Discard(j ,i)
-        /\ UNCHANGED <<serverVars, leaderVars, tempVars, cepochSent>>
-
-\* In phase l33, upon receiving CEPO
+\* In phase l33, upon receiving CEPOCH, leader l proposes back NEWEPOCH and NEWLEADER.
 LeaderHandleCEPOCHinPhase3(i, j) ==
         /\ state[i] = Leader
         /\ msgs[j][i] /= << >>
@@ -465,9 +451,49 @@ LeaderHandleCEPOCHinPhase3(i, j) ==
                                   minitialHistory |-> history[i]])
               \/ /\ currentEpoch[i] <= msg.mepoch
                  /\ UNCHANGED msgs
-        /\
+        /\ UNCHANGED <<serverVars, leaderVars, tempVars, cepochSent>>
+        
+\* In phase l34, upon receiving ack from f of the NEWLEADER, it sends a commit message to f.
+\* Leader l also makes Q := Q \union {f}.
+LeaderHandleACKLDinPhase3(i, j) ==
+        /\ state[i] = Leader
+        /\ msgs[j][i] /= << >>
+        /\ msgs[j][i][1].mtype = ACKLD
+        /\ LET msg == msgs[j][i][1]
+               aimCommitIndex == Minimum({commitIndex[i], Len(msg.mhistory)})
+           IN \/ /\ currentEpoch[i] = msg.mepoch
+                 /\ ackIndex' = [ackIndex EXCEPT ![i][j] = Len(msg.mhistory)]
+                 /\ Reply(i, j, [mtype    |-> COMMIT,
+                                 mepoch   |-> currentEpoch[i],
+                                 mindex   |-> aimCommitIndex,
+                                 mcounter |-> history[aimCommitIndex].counter])
+              \/ /\ currentEpoch[i] /= msg.mepoch
+                 /\ Discard(j, i)
+                 /\ UNCHANGED <<ackIndex>>
+        /\ UNCHANGED <<serverVars, cepochRecv, ackeRecv, ackldRecv, currentCounter, sendCounter, 
+                       initialHistory, committedIndex, tempVars, cepochSent>>
+                       
+----------------------------------------------------------------------------
+DiscardStaleMessage(i) ==
+        /\ \E j \in Server \ {i}: /\ msgs[j][i] /= << >>
+                                  /\ LET msg == msgs[j][i][1]
+                                     IN \/ /\ state[i] = Follower
+                                           /\ \/ msg.mepoch < currentEpoch[i]
+                                              \/ msg.mtype = CEPOCH
+                                              \/ msg.mtype = ACKE
+                                              \/ msg.mtype = ACKLD
+                                              \/ msg.mtype = ACK
+                                        \/ /\ state[i] = Leader 
+                                           /\ msg.mtype /= CEPOCH
+                                           /\ msg.mepoch < currentEpoch[i] 
+                                        \/ /\ state[i] = ProspectiveLeader
+                                           /\ msg.mtype /= CEPOCH
+                                           /\ \/ msg.mepoch < currentEpoch[i]
+                                              \/ msg.mtype = ACK
+                                  /\ Discard(j ,i)
+        /\ UNCHANGED <<serverVars, leaderVars, tempVars, cepochSent>>
 
-StaleLeaderBecomeFollower(i) ==
+BecomeFollower(i) ==
         /\ \/ state[i] = Leader
            \/ state[i] = ProspectiveLeader
         /\ \E j \in Server \ {i}: /\ msgs[j][i] /= << >>   
@@ -493,7 +519,7 @@ DiscoveryLeader1(i) ==
                 newEpoch == Maximum({m.mepoch: m \in mset}) + 1
             IN /\ \A s \in Q: \E m \in mset: m.msource = s
                /\ currentEpoch' = [currentEpoch EXCEPT ![i] = newEpoch]
-               /\ leaderEpoch'  = [leaderEpoch EXCEPT ![i] = newEpoch]
+               /\ leaderEpoch'  = [leaderEpoch EXCEPT ![i] = newEpoch] 
                /\ Send([mtype   |-> NEWEPOCH,
                         msource |-> i,
                         mdest   |-> Server \ {i},
@@ -552,7 +578,7 @@ LivenessProperty1 == \A i, j \in Server, msg \in msgs:
 
 =============================================================================
 \* Modification History
-\* Last modified Tue Mar 16 22:32:01 CST 2021 by Dell
+\* Last modified Wed Mar 17 22:28:04 CST 2021 by Dell
 \* Created Sat Dec 05 13:32:08 CST 2020 by Dell
 
 
