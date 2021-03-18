@@ -96,10 +96,10 @@ VARIABLE committedIndex
 \* Because CEPOCH is the sole message which follower actively sends to pleader.
 VARIABLE cepochSent
 
-\* the biggest epoch in CEPOCH pleader received from followers.
+\* the maximum epoch in CEPOCH pleader received from followers.
 VARIABLE tempMaxEpoch
 
-\* the biggest leaderEpoch and most up-to-date history in ACKE pleader received from followers.
+\* the maximum leaderEpoch and most up-to-date history in ACKE pleader received from followers.
 VARIABLE tempMaxLastEpoch
 
 VARIABLE tempInitialHistory
@@ -140,7 +140,7 @@ TypeOK == /\ state \in [Server -> {Follower, Leader, ProspectiveLeader}]
           /\ leaderOracle \in [Server -> Server]
 *)
 ----------------------------------------------------------------------------
-\* Define initial values for all variables
+\* Define initial values for all variables 
 Init == /\ state              = [s \in Server |-> Follower]
         /\ currentEpoch       = [s \in Server |-> 0]
         /\ leaderEpoch        = [s \in Server |-> 0]
@@ -161,9 +161,34 @@ Init == /\ state              = [s \in Server |-> Follower]
         /\ tempMaxLastEpoch   = [s \in Server |-> 0]
         /\ tempInitialHistory = [s \in Server |-> << >>]
 
+----------------------------------------------------------------------------
 \* A server becomes pleader and a quorum servers knows that.
 Election(i, Q) ==
-        /\ state' = [state EXCEPT ![i] = ProspectiveLeader]
+        /\ i \in Q
+        /\ state'              = [s \in Server |-> IF s = i THEN ProspectiveLeader
+                                                            ELSE IF s \in Q THEN Follower
+                                                                            ELSE state[s]]
+        /\ cepochRecv'         = [cepochRecv EXCEPT ![i] = {i}]
+        /\ ackeRecv'           = [ackeRecv   EXCEPT ![i] = {i}]
+        /\ ackldRecv'          = [ackldRecv  EXCEPT ![i] = {i}]
+        /\ ackIndex'           = [ii \in Server |-> [ij \in Server |->
+                                                    IF ii = i THEN 0
+                                                              ELSE ackIndex[ii][ij]]]
+        /\ committedIndex'     = [committedIndex     EXCEPT ![i] = 0]
+        /\ initialHistory'     = [initialHistory     EXCEPT ![i] = << >>]
+        /\ tempMaxEpoch'       = [tempMaxEpoch       EXCEPT ![i] = currentEpoch[i]]
+        /\ tempMaxLastEpoch'   = [tempMaxLastEpoch   EXCEPT ![i] = currentEpoch[i]]
+        /\ tempInitialHistory' = [tempInitialHistory EXCEPT ![i] = history[i]]
+        /\ leaderOracle'       = [s \in Server |-> IF s \in Q THEN i
+                                                              ELSE leaderOracle[s]]
+        /\ leaderEpoch'        = [s \in Server |-> IF s \in Q THEN currentEpoch[s]
+                                                              ELSE leaderEpoch[s]]
+        /\ cepochSent'         = [s \in Server |-> IF s \in Q THEN FALSE
+                                                              ELSE cepochSent[s]]
+        /\ msgs'               = [ii \in Server |-> [ij \in Server |-> 
+                                                     IF ii \in Q /\ ij \in Q THEN << >>
+                                                                             ELSE msgs[ii][ij]]]
+        /\ UNCHANGED <<currentEpoch, history, commitIndex, currentCounter, sendCounter>>
 
 ----------------------------------------------------------------------------
 \* In phase f11, follower sends f.p to pleader via CEPOCH.
@@ -213,7 +238,7 @@ FollowerDiscovery2(i, j) ==
         /\ msgs[j][i][1].mtype = NEWEPOCH
         /\ LET msg == msgs[j][i][1]
            IN \/ \* new NEWEPOCH - accept and reply
-                 /\ currentEpoch[i] < msg.mepoch
+                 /\ currentEpoch[i] <= msg.mepoch
                  /\ currentEpoch' = [currentEpoch EXCEPT ![i] = msg.mepoch]
                  /\ leaderOracle' = [leaderOracle EXCEPT ![i] = j]
                  /\ Reply(i, j, [mtype      |-> ACKE,
@@ -221,7 +246,7 @@ FollowerDiscovery2(i, j) ==
                                  mlastEpoch |-> leaderEpoch[i],
                                  mhf        |-> history[i]])
               \/ \* stale NEWEPOCH - diacard
-                 /\ currentEpoch[i] >= msg.mepoch
+                 /\ currentEpoch[i] > msg.mepoch
                  /\ Discard(j, i)
                  /\ UNCHANGED <<currentEpoch, leaderOracle>>
         /\ UNCHANGED<<state, leaderEpoch, history, leaderVars, commitIndex, cepochSent, tempVars>>
@@ -259,12 +284,13 @@ LeaderDiscovery2Sync1(i) ==
         /\ initialHistory' = [initialHistory EXCEPT ![i] = tempInitialHistory[i]]
         /\ commitIndex'    = [commitIndex    EXCEPT ![i] = 0]
         /\ ackeRecv'       = [ackeRecv       EXCEPT ![i] = {}]
+        /\ ackIndex'       = [ackIndex       EXCEPT ![i] = Len(tempInitialHistory[i])]
         \* until now, phase1(Discovery) ends
         /\ Broadcast(i, [mtype           |-> NEWLEADER,
                          mepoch          |-> currentEpoch[i],
                          minitialHistory |-> history'[i]])
         /\ UNCHANGED <<state, currentEpoch, leaderEpoch, leaderOracle, cepochRecv,ackldRecv, 
-                       ackIndex, currentCounter, sendCounter, committedIndex, cepochSent, tempVars>> 
+                       currentCounter, sendCounter, committedIndex, cepochSent, tempVars>> 
                        
 ----------------------------------------------------------------------------
 \* In phase f21, follower receives NEWLEADER. The follower updates its epoch and history,
@@ -345,9 +371,10 @@ ClientRequest(i, v) ==
         /\ LET newTransaction == [epoch   |-> currentEpoch[i],
                                   counter |-> currentCounter'[i],
                                   value   |-> v]
-           IN history' = [history EXCEPT ![i] = Append(history[i], newTransaction)]
+           IN /\ history'  = [history  EXCEPT ![i] = Append(history[i], newTransaction)]
+              /\ ackIndex' = [ackIndex EXCEPT ![i] = Len(history'[i])]
         /\ UNCHANGED <<msgs, state, currentEpoch, leaderEpoch, leaderOracle, commitIndex, cepochRecv,
-                       ackeRecv, ackldRecv, ackIndex, sendCounter, initialHistory, committedIndex, tempVars, cepochSent>>
+                       ackeRecv, ackldRecv, sendCounter, initialHistory, committedIndex, tempVars, cepochSent>>
 
 LeaderBroadcast1(i) ==
         /\ state[i] = Leader
@@ -368,7 +395,7 @@ FollowerBroadcast1(i, j) ==
         /\ msgs[j][i] /= << >>
         /\ msgs[j][i][1].mtype = PROPOSE
         /\ LET msg == msgs[j][i][1]
-           IN \/ \* There should be msg.mproposal.counter = 1 or msg.mrpoposal.counter = history[Len(history)].counter + 1
+           IN \/ \* It should be that msg.mproposal.counter = 1 \/ msg.mrpoposal.counter = history[Len(history)].counter + 1
                  /\ currentEpoch[i] = msg.mepoch
                  /\ history' = [history EXCEPT ![i] = Append(history[i], msg.mproposal)]
                  /\ Reply(i, j, [mtype  |-> ACK,
@@ -443,13 +470,13 @@ LeaderHandleCEPOCHinPhase3(i, j) ==
         /\ msgs[j][i] /= << >>
         /\ msgs[j][i][1].mtype = CEPOCH
         /\ LET msg == msgs[j][i][1]
-           IN \/ /\ currentEpoch[i] > msg.mepoch
+           IN \/ /\ currentEpoch[i] >= msg.mepoch
                  /\ Reply2(i, j, [mtype  |-> NEWEPOCH,
                                   mepoch |-> currentEpoch[i]],
                                  [mtype           |-> NEWLEADER,
                                   mepoch          |-> currentEpoch[i],
                                   minitialHistory |-> history[i]])
-              \/ /\ currentEpoch[i] <= msg.mepoch
+              \/ /\ currentEpoch[i] < msg.mepoch
                  /\ UNCHANGED msgs
         /\ UNCHANGED <<serverVars, leaderVars, tempVars, cepochSent>>
         
@@ -472,7 +499,29 @@ LeaderHandleACKLDinPhase3(i, j) ==
                  /\ UNCHANGED <<ackIndex>>
         /\ UNCHANGED <<serverVars, cepochRecv, ackeRecv, ackldRecv, currentCounter, sendCounter, 
                        initialHistory, committedIndex, tempVars, cepochSent>>
-                       
+
+\* To ensure any follower can find the correct leader, the follower should modify leaderOracle
+\* anytime when it receive messages from leader, because a server may restart and join the cluster
+\* halfway and receive the first message which is not NEWEPOCH. But we can delete this restriction
+\* when we ensure Broadcast function acts on the followers in the cluster not any servers in 
+\* the whole system, then one server must has correct leaderOracle before it receives messages.
+
+\* Let me suppose two conditions when one follower sends CEPOCH to leader:
+\* 0. Usually, the server becomes follower in election and sends CEPOCH before receiving NEWEPOCH.
+\* 1. The follower wants to join the cluster halfway and get the newest history.
+\* 2. The follower has received COMMIT, but there exists the gap between its own history and mindex,
+\*    which means there are some transactions before mindex miss. Here we choose to send CEPOCH 
+\*    again, to receive the newest history from leader.
+BecomeFollower(i) ==
+        /\ \E j \in Server \ {i}: /\ msgs[j][i] /= << >>   
+                                  /\ LET msg == msgs[j][i][1]
+                                     IN /\ currentEpoch[i] < msg.mepoch
+                                        /\ \/ msg.mtype = NEWEPOCH
+                                           \/ msg.mtype = NEWLEADER
+                                           \/ msg.mtype = COMMITLD
+                                           \/ msg.mtype = PROPOSE
+                                           \/ msg.mtype = COMMIT
+                                  /\ state' = [state EXCEPT ![i] = Follower]             
 ----------------------------------------------------------------------------
 DiscardStaleMessage(i) ==
         /\ \E j \in Server \ {i}: /\ msgs[j][i] /= << >>
@@ -493,19 +542,44 @@ DiscardStaleMessage(i) ==
                                   /\ Discard(j ,i)
         /\ UNCHANGED <<serverVars, leaderVars, tempVars, cepochSent>>
 
-BecomeFollower(i) ==
-        /\ \/ state[i] = Leader
-           \/ state[i] = ProspectiveLeader
-        /\ \E j \in Server \ {i}: /\ msgs[j][i] /= << >>   
-                                  /\ LET msg == msgs[j][i][1]
-                                     IN /\ currentEpoch[i] < msg.mepoch
-                                        /\ \/ msg.mtype = NEWEPOCH
-                                           \/ msg.mtype = NEWLEADER
-                                           \/ msg.mtype = COMMITLD
-                                           \/ msg.mtype = PROPOSE
-                                           \/ msg.mtype = COMMIT
-                                  /\ state' = [state EXCEPT ![i] = Follower] 
 
+----------------------------------------------------------------------------
+\* Defines how the variables may transition.
+Next ==
+        \/ \E i \in Server, Q \in Quorums: Election(i, Q)
+        \/ \E i \in Server:      FollowerDiscovery1(i)
+        \/ \E i, j \in Server:   LeaderHandleCEPOCH(i, j)
+        \/ \E i \in Server:      LeaderDiscovery1(i)
+        \/ \E i, j \in Server:   FollowerDiscovery2(i, j)
+        \/ \E i, j \in Server:   LeaderHandleACKE(i, j)
+        \/ \E i \in Server:      LeaderDiscovery2Sync1(i)
+        \/ \E i, j \in Server:   FollowerSync1(i, j)
+        \/ \E i, j \in Server:   LeaderHandleACKLD(i, j)
+        \/ \E i \in Server:      LeaderSync2(i)
+        \/ \E i, j \in Server:   FollowerSync2(i, j)
+        \/ \E i \in Server, v \in Value: ClientRequest(i, v)
+        \/ \E i \in Server:      LeaderBroadcast1(i)
+        \/ \E i, j \in Server:   FollowerBroadcast1(i, j)
+        \/ \E i, j \in Server:   LeaderHandleACK(i, j)
+        \/ \E i \in Server:      LeaderAdvanceCommit(i)
+        \/ \E i \in Server:      LeaderBroadcast2(i)
+        \/ \E i, j \in Server:   FollowerBroadcast2(i, j)
+        \/ \E i, j \in Server:   LeaderHandleCEPOCHinPhase3(i, j)
+        \/ \E i, j \in Server:   LeaderHandleACKLDinPhase3(i, j)
+        \/ \E i \in Server:      DiscardStaleMessage(i)
+        \/ \E i \in Server:      BecomeFollower(i)
+
+Spec == Init /\ [][Next]_vars
+
+----------------------------------------------------------------------------
+\* Defines some variants, safety propoties, and liveness propoties of zab consensus algorithm.
+
+Consistency == 
+        \E i, j \in Server:
+                    /\ state[i] = Leader
+                    /\ state[j] = Leader
+                    /\ currentEpoch[i] = currentEpoch[j]
+                    => i = j
 (*   
 DiscoveryLeader1(i) ==
         /\ state[i] = ProspectiveLeader
@@ -578,7 +652,7 @@ LivenessProperty1 == \A i, j \in Server, msg \in msgs:
 
 =============================================================================
 \* Modification History
-\* Last modified Wed Mar 17 22:28:04 CST 2021 by Dell
+\* Last modified Thu Mar 18 20:53:24 CST 2021 by Dell
 \* Created Sat Dec 05 13:32:08 CST 2020 by Dell
 
 
