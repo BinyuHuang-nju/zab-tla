@@ -105,7 +105,7 @@ VARIABLE tempMaxLastEpoch
 VARIABLE tempInitialHistory
 
 serverVars == <<state, currentEpoch, leaderEpoch, leaderOracle, history, commitIndex>>
-leaderVars == <<cepochRecv, ackeRecv, ackldRecv, ackIndex, currentCounter, sendCounter, initialHistory,committedIndex>>
+leaderVars == <<cepochRecv, ackeRecv, ackldRecv, ackIndex, currentCounter, sendCounter, initialHistory, committedIndex>>
 tempVars   == <<tempMaxEpoch, tempMaxLastEpoch, tempInitialHistory>>
 
 vars == <<serverVars, msgs, leaderVars, tempVars, cepochSent>>
@@ -671,7 +671,7 @@ LivenessProperty1 == \A i, j \in Server, msg \in msgs:
 
 =============================================================================
 \* Modification History
-\* Last modified Fri Mar 19 22:19:30 CST 2021 by Dell
+\* Last modified Sat Mar 20 15:51:20 CST 2021 by Dell
 \* Created Sat Dec 05 13:32:08 CST 2020 by Dell
 
 
