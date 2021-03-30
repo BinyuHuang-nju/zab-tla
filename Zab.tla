@@ -190,6 +190,12 @@ Election(i, Q) ==
                                                                              ELSE msgs[ii][ij]]]
         /\ UNCHANGED <<currentEpoch, history, commitIndex, currentCounter, sendCounter>>
 
+Restart(i) ==
+        /\ state' = [state EXCEPT ![i] = Follower]
+        /\ leaderOracle' = [leaderOracle EXCEPT ![i] = NullPoint]
+        /\ cepochSent' = [cepochSent EXCEPT ![i] = FALSE]
+        /\ UNCHANGED <<currentEpoch, leaderEpoch, history, commitIndex, leaderVars, tempVars, msgs>>
+        
 ----------------------------------------------------------------------------
 \* In phase f11, follower sends f.p to pleader via CEPOCH.
 FollowerDiscovery1(i) ==
@@ -460,7 +466,7 @@ FollowerBroadcast2(i, j) ==
         /\ LET msg == msgs[j][i][1]
            IN \/ \* new COMMIT - commit transaction in history
                  /\ currentEpoch[i] = msg.mepoch
-                 /\ commitIndex' = [commitIndex EXCEPT ![i] = Maximum({commitIndex[i], msg.mindex})]
+                 /\ commitIndex'  = [commitIndex  EXCEPT ![i] = Maximum({commitIndex[i], msg.mindex})]
                  /\ leaderOracle' = [leaderOracle EXCEPT ![i] = j]
               \/ \* stale COMMIT - discard
                  /\ currentEpoch[i] /= msg.mepoch
@@ -565,6 +571,7 @@ DiscardStaleMessage(i) ==
 ----------------------------------------------------------------------------
 \* Defines how the variables may transition.
 Next ==
+        \/ \E i \in Server:      Restart(i)
         \/ \E i \in Server, Q \in Quorums: Election(i, Q)
         \/ \E i \in Server:      FollowerDiscovery1(i)
         \/ \E i, j \in Server:   LeaderHandleCEPOCH(i, j)
@@ -671,7 +678,7 @@ LivenessProperty1 == \A i, j \in Server, msg \in msgs:
 
 =============================================================================
 \* Modification History
-\* Last modified Sat Mar 20 15:51:20 CST 2021 by Dell
+\* Last modified Tue Mar 30 22:14:50 CST 2021 by Dell
 \* Created Sat Dec 05 13:32:08 CST 2020 by Dell
 
 
