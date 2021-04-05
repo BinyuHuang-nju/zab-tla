@@ -1,4 +1,5 @@
--------------------------------- MODULE Zab --------------------------------
+-------------------------------- MODULE ZabQ -------------------------------
+
 \* This is the formal specification for the Zab consensus algorithm,
 \* which means Zookeeper Atomic Broadcast.
 
@@ -64,6 +65,9 @@ VARIABLE history
 \* msgs[i][j] means the input buffer of server j from server i.
 VARIABLE msgs
 
+\* The set of followers which the leader thinks follow it.
+VARIABLE leaderQuorum
+
 \* The set of followers who has successfully sent CEPOCH to pleader in pleader.
 VARIABLE cepochRecv
 
@@ -105,7 +109,7 @@ VARIABLE tempMaxLastEpoch
 VARIABLE tempInitialHistory
 
 serverVars == <<state, currentEpoch, leaderEpoch, leaderOracle, history, commitIndex>>
-leaderVars == <<cepochRecv, ackeRecv, ackldRecv, ackIndex, currentCounter, sendCounter, initialHistory, committedIndex>>
+leaderVars == <<leaderQuorum, cepochRecv, ackeRecv, ackldRecv, ackIndex, currentCounter, sendCounter, initialHistory, committedIndex>>
 tempVars   == <<tempMaxEpoch, tempMaxLastEpoch, tempInitialHistory>>
 
 vars == <<serverVars, msgs, leaderVars, tempVars, cepochSent>>
@@ -675,7 +679,7 @@ LivenessProperty1 == \A i, j \in Server, msg \in msgs:
 
 =============================================================================
 \* Modification History
-\* Last modified Tue Mar 30 22:41:05 CST 2021 by Dell
+\* Last modified Thu Apr 01 20:19:10 CST 2021 by Dell
 \* Created Sat Dec 05 13:32:08 CST 2020 by Dell
 
 
