@@ -18,7 +18,7 @@ CONSTANTS Follower, Leader, ProspectiveLeader
 \* Message types
 CONSTANTS CEPOCH, NEWEPOCH, ACKE, NEWLEADER, ACKLD, COMMITLD, PROPOSE, ACK, COMMIT
 
-\* the maximum round of epoch (initially {0,1,2})
+\* the maximum round of epoch (initially {0,1,2})£¬ currently not used
 CONSTANT Epoches
 ----------------------------------------------------------------------------
 \* Return the maximum value from the set S
@@ -32,8 +32,6 @@ Minimum(S) == IF S = {} THEN -1
 Quorums == {Q \in SUBSET Server: Cardinality(Q)*2 > Cardinality(Server)}
 ASSUME QuorumsAssumption == /\ \A Q \in Quorums: Q \subseteq Server
                             /\ \A Q1, Q2 \in Quorums: Q1 \cap Q2 /= {}                           
-
-
 
 None == CHOOSE v: v \notin Value
 
@@ -592,10 +590,9 @@ Consistency ==
                     /\ state[j] = Leader
                     /\ currentEpoch[i] = currentEpoch[j]
                     => i = j
+                    
 (*   
-
-
-              
+            
 Integrity == \A l, f \in Server, msg \in msgs:
                 /\ state[l] = Leader /\ state[f] = Follower
                 /\ msg.type = COMMIT /\ msg \in histroy[f]   
@@ -612,7 +609,7 @@ LivenessProperty1 == \A i, j \in Server, msg \in msgs:
 
 =============================================================================
 \* Modification History
-\* Last modified Wed Apr 14 22:27:28 CST 2021 by Dell
+\* Last modified Wed Apr 14 22:50:45 CST 2021 by Dell
 \* Created Sat Dec 05 13:32:08 CST 2020 by Dell
 
 
