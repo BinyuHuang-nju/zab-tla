@@ -33,13 +33,7 @@ Quorums == {Q \in SUBSET Server: Cardinality(Q)*2 > Cardinality(Server)}
 ASSUME QuorumsAssumption == /\ \A Q \in Quorums: Q \subseteq Server
                             /\ \A Q1, Q2 \in Quorums: Q1 \cap Q2 /= {}                           
 
-(*
-Messages == [mtype:{CEPOCH}, msource:Server, mdest:Server, mepoch:Epoches]
-            \union
-            [mtype:{NEWEPOCH}, msource:Server, mdest:SUBSET Server, mepoch:Epoches]
-            \union
-            [mtype:{ACKE}, msource:Server, mdest: Server, lastEpoch:Epoches, hf:]
-*)
+
 
 None == CHOOSE v: v \notin Value
 
@@ -130,12 +124,7 @@ Reply(i, j, m) == msgs' = [msgs EXCEPT ![j][i] = Tail(msgs[j][i]),
 
 Reply2(i, j, m1, m2) == msgs' = [msgs EXCEPT ![j][i] = Tail(msgs[j][i]),
                                              ![i][j] = Append(Append(msgs[i][j], m1), m2)]
-(*
-TypeOK == /\ state \in [Server -> {Follower, Leader, ProspectiveLeader}]
-          /\ currentEpoch \in [Server -> Epoches]
-          /\ leaderEpoch \in [Server -> Epoches]
-          /\ leaderOracle \in [Server -> Server]
-*)
+
 ----------------------------------------------------------------------------
 \* Define initial values for all variables 
 Init == /\ state              = [s \in Server |-> Follower]
@@ -604,59 +593,7 @@ Consistency ==
                     /\ currentEpoch[i] = currentEpoch[j]
                     => i = j
 (*   
-DiscoveryLeader1(i) ==
-        /\ state[i] = ProspectiveLeader
-        /\ ~\E m \in msgs: /\ m.mtype = NEWEPOCH
-                           /\ m.msource = i
-                           /\ m.mepoch = currentEpoch[i]
-        /\ \E Q \in Quorums:
-            LET mset == {m \in msgs: /\ m.mtype = CEPOCH
-                                     /\ m.msource \in Q 
-                                     /\ m.mdest = i}
-                newEpoch == Maximum({m.mepoch: m \in mset}) + 1
-            IN /\ \A s \in Q: \E m \in mset: m.msource = s
-               /\ currentEpoch' = [currentEpoch EXCEPT ![i] = newEpoch]
-               /\ leaderEpoch'  = [leaderEpoch EXCEPT ![i] = newEpoch] 
-               /\ Send([mtype   |-> NEWEPOCH,
-                        msource |-> i,
-                        mdest   |-> Server \ {i},
-                        mepoch  |-> newEpoch])
-        /\ UNCHANGED <<state, leaderOracle, history>>
 
-
-DiscoveryFollower1(i) == 
-        /\ state[i] = Follower
-        /\ leaderOracle[i] /= NullPoint
-        /\ LET leader == leaderOracle[i]
-           IN /\ ~\E m \in msgs: /\ m.mtype = CEPOCH 
-                                 /\ m.msource = i 
-                                 /\ m.mdest = leader 
-                                 /\ m.mepoch = currentEpoch[i]
-              /\ Send([mtype   |-> CEPOCH,
-                       msource |-> i,
-                       mdest   |-> leader,
-                       mepoch  |-> currentEpoch[i]])
-        /\ UNCHANGED <<state, currentEpoch, leaderEpoch, leaderOracle, history>>
-
-
-DiscoveryFollower2(i) == 
-        /\ state[i] = Follower
-        /\ \E m \in msgs: /\ m.mtype = NEWEPOCH
-                          /\ i \in m.mdest
-                          /\ currentEpoch[i] < m.mepoch
-                          /\ leaderOracle' = [leaderOracle EXCEPT ![i] = m.msource]
-                          /\ currentEpoch' = [currentEpoch EXCEPT ![i] = m.mepoch]
-                          /\ LET qm == [mtype   |-> NEWEPOCH, 
-                                        msource |-> m.msource, 
-                                        mdest   |-> m.mdest\{i}, 
-                                        mepoch  |-> m.mepoch]
-                             IN msgs' = (msgs \ {m}) \union {qm}
-                          /\ Send([mtype     |-> ACKE,
-                                   msource   |-> i,
-                                   mdest     |-> m.msource,
-                                   lastEpoch |-> leaderEpoch[i],
-                                   hf        |-> history[i]])
-        /\ UNCHANGED <<state, leaderEpoch, history>>
 
               
 Integrity == \A l, f \in Server, msg \in msgs:
@@ -675,7 +612,7 @@ LivenessProperty1 == \A i, j \in Server, msg \in msgs:
 
 =============================================================================
 \* Modification History
-\* Last modified Tue Mar 30 22:41:05 CST 2021 by Dell
+\* Last modified Wed Apr 14 22:27:28 CST 2021 by Dell
 \* Created Sat Dec 05 13:32:08 CST 2020 by Dell
 
 
