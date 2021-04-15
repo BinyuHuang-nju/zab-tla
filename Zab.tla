@@ -13,6 +13,7 @@ CONSTANT Server
 CONSTANT Value
 
 \* Server states
+\* It is unnecessary to add state ELECTION, we can own it by setting leaderOracle to Null.
 CONSTANTS Follower, Leader, ProspectiveLeader
 
 \* Message types
@@ -79,6 +80,9 @@ VARIABLE sendCounter
 VARIABLE initialHistory
 
 \* commitIndex[i] means leader/follower i should commit how many proposals and sent COMMIT messages.
+\* It should be more formal to add variable applyIndex to represent the prefix entries of the history
+\* that has applied to state machine, but we can tolerate that applyIndex = commitIndex.
+\* This does not violate correctness.
 VARIABLE commitIndex
 
 \* commitIndex[i] means leader i has committed how many proposals and sent COMMIT messages.
@@ -174,6 +178,7 @@ Election(i, Q) ==
                                                                              ELSE msgs[ii][ij]]]
         /\ UNCHANGED <<currentEpoch, history, commitIndex, currentCounter, sendCounter>>
 
+\* A server halts and restarts.
 Restart(i) ==
         /\ state' = [state EXCEPT ![i] = Follower]
         /\ leaderOracle' = [leaderOracle EXCEPT ![i] = NullPoint]
@@ -584,23 +589,50 @@ Spec == Init /\ [][Next]_vars
 ----------------------------------------------------------------------------
 \* Defines some variants, safety propoties, and liveness propoties of zab consensus algorithm.
 
+\* Safety properties
+
+\* There is most one leader/prospective leader in a certain epoch.
 Consistency == 
         \E i, j \in Server:
                     /\ state[i] = Leader
                     /\ state[j] = Leader
                     /\ currentEpoch[i] = currentEpoch[j]
                     => i = j
-                    
+
+\* Integrity: If some follower delivers one transaction, then some primary has broadcast it.
+
+\* Agreement: If some follower f delivers transaction a and some follower f' delivers transaction b,
+\*            then f' delivers a or f delivers b.
+
+\* Total order: If some follower delivers a before b, then any process that delivers b
+\*              must also deliver a and deliver a before b.
+
+\* Local primary order: If a primary broadcasts a before it broadcasts b, then a follower that
+\*                      delivers b must also deliver a before b.
+
+\* Global primary order: A follower f delivers both a with epoch e and b with epoch e', and e < e',
+\*                       then f must deliver a before b.
+
+\* Primary integrity: If primary p broadcasts a and some follower f delivers b such that b has epoch
+\*                    smaller than epoch of p, then p must deliver b before it broadcasts a.
+
+\* Liveness property
+
+(*
+ Suppose that:
+    -A quorum Q of followers are up.
+    -The followers in Q elect the same process l and l is up.
+    -Messages between a follower in Q and l are received in a timely fashion.
+ If l proposes a transaction a, then a is eventually committed.
+*) 
+
+
 (*   
             
 Integrity == \A l, f \in Server, msg \in msgs:
                 /\ state[l] = Leader /\ state[f] = Follower
                 /\ msg.type = COMMIT /\ msg \in histroy[f]   
                 => msg \in history[l]
-
-Consistency == \E i, j \in Server:
-                (state[i] = Leader) /\ (state[j] = Leader)
-                => i = j
 
 LivenessProperty1 == \A i, j \in Server, msg \in msgs:
                       (state[i] = Leader) /\ (msg.type = COMMIT)
@@ -609,7 +641,7 @@ LivenessProperty1 == \A i, j \in Server, msg \in msgs:
 
 =============================================================================
 \* Modification History
-\* Last modified Wed Apr 14 22:50:45 CST 2021 by Dell
+\* Last modified Thu Apr 15 21:25:04 CST 2021 by Dell
 \* Created Sat Dec 05 13:32:08 CST 2020 by Dell
 
 
