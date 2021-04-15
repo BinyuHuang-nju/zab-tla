@@ -20,8 +20,11 @@
 ## 注意点
 1.	3种state，9种msg type，是否都进行了考虑？(否则缓冲区会堵塞)
 
+2.	在规约properties的时候，仅靠当前定义的变量无法表达某个leader广播了某个事务，或某个follower接收了某个事务。如果想要更准确表达properties，需要补上msgs传输和接收记录。
+
 ## 可做的code优化
 1.	基于工程角度，ACK-E和NEWLEADER通常不会发送整条log，故若这样设计，需要在之前的报文中得到follower的log信息，如log长度、commitIndex等。
+
 2.	如今的Zab在选主阶段通常使用fast leader election，使得选出的prospective leader具有最up-to-date的性质(latest epoch and highest last zxid)，从而日志内容从双向同步变成了单向同步，在phase1、phase2阶段能够省略很多处理。
 
 ## Model checking问题

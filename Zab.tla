@@ -81,7 +81,7 @@ VARIABLE initialHistory
 
 \* commitIndex[i] means leader/follower i should commit how many proposals and sent COMMIT messages.
 \* It should be more formal to add variable applyIndex to represent the prefix entries of the history
-\* that has applied to state machine, but we can tolerate that applyIndex = commitIndex.
+\* that has applied to state machine, but we can tolerate that applyIndex(deliverIndex here) = commitIndex.
 \* This does not violate correctness.
 VARIABLE commitIndex
 
@@ -593,16 +593,23 @@ Spec == Init /\ [][Next]_vars
 
 \* There is most one leader/prospective leader in a certain epoch.
 Consistency == 
-        \E i, j \in Server:
-                    /\ state[i] = Leader
-                    /\ state[j] = Leader
+        \A i, j \in Server:
+                    /\ \/ state[i] = Leader \/ state[i] = ProspectiveLeader
+                    /\ \/ state[j] = Leader \/ state[j] = ProspectiveLeader
                     /\ currentEpoch[i] = currentEpoch[j]
                     => i = j
 
 \* Integrity: If some follower delivers one transaction, then some primary has broadcast it.
+Integrity ==
+        \A i \in Server
 
 \* Agreement: If some follower f delivers transaction a and some follower f' delivers transaction b,
 \*            then f' delivers a or f delivers b.
+Agreement ==
+        \A i, j \in Server:
+            /\ state[i] = Follower /\ Len(history[i]) > 0
+            /\ state[j] = Follower /\ Len(history[j]) > 0
+            /\
 
 \* Total order: If some follower delivers a before b, then any process that delivers b
 \*              must also deliver a and deliver a before b.
@@ -641,7 +648,7 @@ LivenessProperty1 == \A i, j \in Server, msg \in msgs:
 
 =============================================================================
 \* Modification History
-\* Last modified Thu Apr 15 21:25:04 CST 2021 by Dell
+\* Last modified Thu Apr 15 22:51:52 CST 2021 by Dell
 \* Created Sat Dec 05 13:32:08 CST 2020 by Dell
 
 
