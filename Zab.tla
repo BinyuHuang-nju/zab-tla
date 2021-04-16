@@ -80,7 +80,7 @@ VARIABLE sendCounter
 VARIABLE initialHistory
 
 \* commitIndex[i] means leader/follower i should commit how many proposals and sent COMMIT messages.
-\* It should be more formal to add variable applyIndex to represent the prefix entries of the history
+\* It should be more formal to add variable applyIndex/deliverIndex to represent the prefix entries of the history
 \* that has applied to state machine, but we can tolerate that applyIndex(deliverIndex here) = commitIndex.
 \* This does not violate correctness.
 VARIABLE commitIndex
@@ -146,6 +146,7 @@ Init == /\ state              = [s \in Server |-> Follower]
         /\ initialHistory     = [s \in Server |-> << >>]
         /\ cepochSent         = [s \in Server |-> FALSE]
         /\ tempMaxEpoch       = [s \in Server |-> 0]
+        
         /\ tempMaxLastEpoch   = [s \in Server |-> 0]
         /\ tempInitialHistory = [s \in Server |-> << >>]
 
@@ -180,10 +181,13 @@ Election(i, Q) ==
 
 \* A server halts and restarts.
 Restart(i) ==
-        /\ state' = [state EXCEPT ![i] = Follower]
+        /\ state'        = [state EXCEPT ![i] = Follower]
         /\ leaderOracle' = [leaderOracle EXCEPT ![i] = NullPoint]
-        /\ cepochSent' = [cepochSent EXCEPT ![i] = FALSE]
-        /\ UNCHANGED <<currentEpoch, leaderEpoch, history, commitIndex, leaderVars, tempVars, msgs>>
+        /\ commitIndex'  = [commitIndex EXCEPT ![i] = 0]   
+        /\ msgs'         = [ii \in Server |-> [ij \in Server |-> IF ij = i THEN << >>
+                                                                           ELSE msgs[ii][ij]]]       
+        /\ cepochSent'   = [cepochSent EXCEPT ![i] = FALSE]
+        /\ UNCHANGED <<currentEpoch, leaderEpoch, history, leaderVars, tempVars>>
         
 ----------------------------------------------------------------------------
 \* In phase f11, follower sends f.p to pleader via CEPOCH.
@@ -280,16 +284,18 @@ LeaderDiscovery2Sync1(i) ==
         /\ currentEpoch'   = [currentEpoch   EXCEPT ![i] = leaderEpoch[i]]
         /\ history'        = [history        EXCEPT ![i] = tempInitialHistory[i]]
         /\ initialHistory' = [initialHistory EXCEPT ![i] = tempInitialHistory[i]]
-        /\ commitIndex'    = [commitIndex    EXCEPT ![i] = 0]
         /\ ackeRecv'       = [ackeRecv       EXCEPT ![i] = {}]
         /\ ackIndex'       = [ackIndex       EXCEPT ![i] = Len(tempInitialHistory[i])]
         \* until now, phase1(Discovery) ends
         /\ Broadcast(i, [mtype           |-> NEWLEADER,
                          mepoch          |-> currentEpoch[i],
                          minitialHistory |-> history'[i]])
-        /\ UNCHANGED <<state, leaderEpoch, leaderOracle, cepochRecv,ackldRecv, 
+        /\ UNCHANGED <<state, leaderEpoch, leaderOracle, commitIndex, cepochRecv,ackldRecv, 
                        currentCounter, sendCounter, committedIndex, cepochSent, tempVars>> 
                        
+\* Delete the change of commitIndex in LeaderDiscovery2Sync1. FollowerSync1, then we can promise that
+\* commitIndex of every server increases monotonically, except that some server halts and restarts.
+   
 ----------------------------------------------------------------------------
 \* In phase f21, follower receives NEWLEADER. The follower updates its epoch and history,
 \* and sends back ACK-LD to pleader.
@@ -304,15 +310,14 @@ FollowerSync1(i, j) ==
                  /\ leaderEpoch'  = [leaderEpoch  EXCEPT ![i] = msg.mepoch]
                  /\ leaderOracle' = [leaderOracle EXCEPT ![i] = j]
                  /\ history'      = [history      EXCEPT ![i] = msg.minitialHistory]
-                 /\ commitIndex'  = [commitIndex  EXCEPT ![i] = 0]
                  /\ Reply(i, j, [mtype    |-> ACKLD,
                                  mepoch   |-> msg.mepoch,
                                  mhistory |-> msg.minitialHistory])
               \/ \* stale NEWLEADER - discard
                  /\ currentEpoch[i] > msg.mepoch
                  /\ Discard(j, i)
-                 /\ UNCHANGED <<currentEpoch, leaderEpoch, leaderOracle, history, commitIndex>>
-        /\ UNCHANGED <<state, leaderVars, tempVars, cepochSent>>
+                 /\ UNCHANGED <<currentEpoch, leaderEpoch, leaderOracle, history>>
+        /\ UNCHANGED <<state, commitIndex, leaderVars, tempVars, cepochSent>>
                  
 \* In phase l22, pleader receives ACK-LD from a quorum of followers, and sends COMMIT-LD to followers.
 LeaderHandleACKLD(i, j) ==
@@ -648,7 +653,7 @@ LivenessProperty1 == \A i, j \in Server, msg \in msgs:
 
 =============================================================================
 \* Modification History
-\* Last modified Thu Apr 15 22:51:52 CST 2021 by Dell
+\* Last modified Fri Apr 16 17:07:47 CST 2021 by Dell
 \* Created Sat Dec 05 13:32:08 CST 2020 by Dell
 
 
