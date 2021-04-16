@@ -101,6 +101,7 @@ VARIABLE tempMaxLastEpoch
 VARIABLE tempInitialHistory
 
 \* the set of all broadcast messages whose tpye is proposal that any leader has sent, only used in verifying properties.
+\* So the variable will only be changed in transition LeaderBroadcast1.
 VARIABLE proposalMsgsLog
 
 serverVars == <<state, currentEpoch, leaderEpoch, leaderOracle, history, commitIndex>>
@@ -613,10 +614,24 @@ Consistency ==
 \* Here, delivering means deliver some transaction from history to replica. We can assume deliverIndex = commitIndex.
 \* So we can assume the set of delivered transactions is the prefix of history with index from 1 to commitIndex.
 \* We can express a transaction by two-tuple<epoch,counter> according to its uniqueness.
+equal(entry1, entry2) == IF /\ entry1.epoch = entry2.epoch
+                            /\ entry1.counter = entry2.counter
+                         THEN TRUE ELSE FALSE
+
+precede(entry1, entry2) == IF entry1.epoch < entry2.epoch THEN TRUE
+                           ELSE IF /\ entry1.epoch = entry2.epoch
+                                   /\ entry1.counter < entry2.counter THEN TRUE
+                                ELSE FALSE
+
+searchEqual(deliveredLog, entry) == IF Len(deliveredLog) = 0 THEN 0
+                                    ELSE IF precede(entry, deliverdLog[Len(deliveredLog)])
 
 \* Integrity: If some follower delivers one transaction, then some primary has broadcast it.
-(*Integrity ==
-        \A i \in Server*)
+Integrity ==
+        \A i \in Server:
+            state[i] = Follower /\ commitIndex[i] > 0
+            => \A index \in 1..commitIndex[i]: \E msg \in proposalMsgsLog: 
+                    equal(msg.mproposal, history[i][index])
 
 \* Agreement: If some follower f delivers transaction a and some follower f' delivers transaction b,
 \*            then f' delivers a or f delivers b.
@@ -627,14 +642,18 @@ Agreement ==
             =>
             \A index1 \in 1..commitIndex[i], index2 \in 1..commitIndex[j]:
                 \/ \E indexj \in 1..commitIndex[j]:
-                    /\ history[j][indexj].epoch = history[i][index1].epoch
-                    /\ history[j][indexj].counter = history[i][index1].counter
+                    equal(history[j][indexj], history[i][index1])
                 \/ \E indexi \in 1..commitIndex[i]:
-                    /\ history[i][indexi].epoch = history[j][index2].epoch
-                    /\ history[i][indexi].counter = history[j][index2].counter 
+                    equal(history[i][indexi], history[j][index2])
 
 \* Total order: If some follower delivers a before b, then any process that delivers b
 \*              must also deliver a and deliver a before b.
+TotalOrder ==
+        \A i, j \in Server: state[i] = commitIndex[i] >= 2 /\ commitIndex[j] >= 2
+            => \A indexi1 \in 1..commitIndex[i]-1: \A indexi2 \in (indexi1 + 1)..commitIndex[i]:
+                LET indexj2 = 
+                \/ \E indexj2 \in 1..commitIndex
+        
 
 \* Local primary order: If a primary broadcasts a before it broadcasts b, then a follower that
 \*                      delivers b must also deliver a before b.
@@ -670,7 +689,7 @@ LivenessProperty1 == \A i, j \in Server, msg \in msgs:
 
 =============================================================================
 \* Modification History
-\* Last modified Fri Apr 16 17:52:40 CST 2021 by Dell
+\* Last modified Fri Apr 16 23:08:02 CST 2021 by Dell
 \* Created Sat Dec 05 13:32:08 CST 2020 by Dell
 
 
