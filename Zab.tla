@@ -395,7 +395,8 @@ LeaderBroadcast1(i) ==
                                mepoch    |-> currentEpoch[i],
                                mproposal |-> toBeSentEntry])
               /\ sendCounter' = [sendCounter EXCEPT ![i] = toBeSentCounter]
-              /\ proposalMsgsLog' = proposalMsgsLog \union {[mtype     |-> PROPOSE,
+              /\ proposalMsgsLog' = proposalMsgsLog \union {[msource   |-> i,
+                                                             mtype     |-> PROPOSE,
                                                              mepoch    |-> currentEpoch[i],
                                                              mproposal |-> toBeSentEntry]}
         /\ UNCHANGED <<serverVars,cepochRecv, ackeRecv, ackldRecv, ackIndex, 
@@ -600,73 +601,97 @@ Next ==
 Spec == Init /\ [][Next]_vars
 
 ----------------------------------------------------------------------------
-\* Defines some variants, safety propoties, and liveness propoties of zab consensus algorithm.
+\* Define some variants, safety propoties, and liveness propoties of Zab consensus algorithm.
 
 \* Safety properties
 
 \* There is most one leader/prospective leader in a certain epoch.
-Consistency == 
-        \A i, j \in Server:
-                    /\ \/ state[i] = Leader \/ state[i] = ProspectiveLeader
-                    /\ \/ state[j] = Leader \/ state[j] = ProspectiveLeader
+Leadership == \A i, j \in Server:
+                    /\ state[i] = Leader \/ state[i] = ProspectiveLeader
+                    /\ state[j] = Leader \/ state[j] = ProspectiveLeader
                     /\ currentEpoch[i] = currentEpoch[j]
                     => i = j
 \* Here, delivering means deliver some transaction from history to replica. We can assume deliverIndex = commitIndex.
 \* So we can assume the set of delivered transactions is the prefix of history with index from 1 to commitIndex.
 \* We can express a transaction by two-tuple<epoch,counter> according to its uniqueness.
-equal(entry1, entry2) == IF /\ entry1.epoch = entry2.epoch
-                            /\ entry1.counter = entry2.counter
-                         THEN TRUE ELSE FALSE
+equal(entry1, entry2) == /\ entry1.epoch   = entry2.epoch
+                         /\ entry1.counter = entry2.counter
 
-precede(entry1, entry2) == IF entry1.epoch < entry2.epoch THEN TRUE
-                           ELSE IF /\ entry1.epoch = entry2.epoch
-                                   /\ entry1.counter < entry2.counter THEN TRUE
-                                ELSE FALSE
+precede(entry1, entry2) == \/ entry1.epoch < entry2.epoch 
+                           \/ /\ entry1.epoch   = entry2.epoch
+                              /\ entry1.counter < entry2.counter
 
-searchEqual(deliveredLog, entry) == IF Len(deliveredLog) = 0 THEN 0
-                                    ELSE IF precede(entry, deliverdLog[Len(deliveredLog)])
+\* PrefixConsistency: The prefix that have been delivered in history in any process is the same.
+PrefixConsistency ==  \A i, j \in Server:
+                        LET smaller == Minimum({commitIndex[i], commitIndex[j]})
+                        IN \/ smaller    = 0
+                           \/ /\ smaller > 0
+                              /\ \A index \in 1..smaller: equal(history[i][index], history[j][index])
 
 \* Integrity: If some follower delivers one transaction, then some primary has broadcast it.
-Integrity ==
-        \A i \in Server:
-            state[i] = Follower /\ commitIndex[i] > 0
-            => \A index \in 1..commitIndex[i]: \E msg \in proposalMsgsLog: 
+Integrity == \A i \in Server:
+                state[i] = Follower /\ commitIndex[i] > 0
+                => \A index \in 1..commitIndex[i]: \E msg \in proposalMsgsLog: 
                     equal(msg.mproposal, history[i][index])
 
 \* Agreement: If some follower f delivers transaction a and some follower f' delivers transaction b,
 \*            then f' delivers a or f delivers b.
-Agreement ==
-        \A i, j \in Server:
-            /\ state[i] = Follower /\ commitIndex[i] > 0
-            /\ state[j] = Follower /\ commitIndex[j] > 0
-            =>
-            \A index1 \in 1..commitIndex[i], index2 \in 1..commitIndex[j]:
-                \/ \E indexj \in 1..commitIndex[j]:
-                    equal(history[j][indexj], history[i][index1])
-                \/ \E indexi \in 1..commitIndex[i]:
-                    equal(history[i][indexi], history[j][index2])
+Agreement == \A i, j \in Server:
+                /\ state[i] = Follower /\ commitIndex[i] > 0
+                /\ state[j] = Follower /\ commitIndex[j] > 0
+                =>
+                \A index1 \in 1..commitIndex[i], index2 \in 1..commitIndex[j]:
+                    \/ \E indexj \in 1..commitIndex[j]:
+                        equal(history[j][indexj], history[i][index1])
+                    \/ \E indexi \in 1..commitIndex[i]:
+                        equal(history[i][indexi], history[j][index2])
 
 \* Total order: If some follower delivers a before b, then any process that delivers b
 \*              must also deliver a and deliver a before b.
-TotalOrder ==
-        \A i, j \in Server: state[i] = commitIndex[i] >= 2 /\ commitIndex[j] >= 2
-            => \A indexi1 \in 1..commitIndex[i]-1: \A indexi2 \in (indexi1 + 1)..commitIndex[i]:
-                LET indexj2 = 
-                \/ \E indexj2 \in 1..commitIndex
+TotalOrder == \A i, j \in Server: commitIndex[i] >= 2 /\ commitIndex[j] >= 2
+                => \A indexi1 \in 1..(commitIndex[i]-1): \A indexi2 \in (indexi1 + 1)..commitIndex[i]:
+                    LET logOk == \E index \in 1..commitIndex[j]: equal(history[i][indexi2], history[j][index])
+                    IN \/ ~logOk
+                       \/ /\ logOk 
+                          /\ LET indexj2 == CHOOSE idx \in 1..commitIndex[j]: equal(history[i][indexi2], history[j][idx])
+                             IN \E indexj1 \in 1..(indexj2 - 1): equal(history[i][indexi1], history[j][indexj1])
         
 
 \* Local primary order: If a primary broadcasts a before it broadcasts b, then a follower that
 \*                      delivers b must also deliver a before b.
+LocalPrimaryOrder == LET mset(i, e) == {msg \in proposalMsgsLog: msg.msource = i /\ msg.mproposal.epoch = e}
+                         mentries(i, e) == {msg.mproposal: msg \in mset(i, e)}
+                     IN \A i \in Server: \A e \in 1..currentEpoch[i]:
+                           /\ Cardinality(mentries(i, e)) >= 2
+                           /\ LET tsc1 == CHOOSE p \in mentries(i, e): TRUE
+                                  tsc2 == CHOOSE p \in mentries(i, e): \lnot equal(p, tsc1)
+                                  tscPre  == IF precede(tsc1, tsc2) THEN tsc1 ELSE tsc2
+                                  tscNext == IF precede(tsc1, tsc2) THEN tsc2 ELSE tsc1
+                              IN \A j \in Server: /\ commitIndex[j] >= 2
+                                                  /\ \E index \in 1..commitIndex[j]: equal(history[j][index], tscNext)
+                                  => LET index2 == CHOOSE idx \in 1..commitIndex[j]: equal(history[j][idx], tscNext)
+                                     IN /\ index2 > 1
+                                        /\ \E index1 \in 1..(index2 - 1): equal(history[j][index1], tscPre)
 
 \* Global primary order: A follower f delivers both a with epoch e and b with epoch e', and e < e',
 \*                       then f must deliver a before b.
-
+GlobalPrimaryOrder == \A i \in Server: commitIndex[i] >= 2
+                         => \A idx1, idx2 \in 1..commitIndex[i]: \/ history[i][idx1].epoch >= history[i][idx2].epoch
+                                                                 \/ /\ history[i][idx1].epoch < history[i][idx2].epoch
+                                                                    /\ idx1 < idx2
+                                       
 \* Primary integrity: If primary p broadcasts a and some follower f delivers b such that b has epoch
 \*                    smaller than epoch of p, then p must deliver b before it broadcasts a.
+PrimaryIntegrity == \A i, j \in Server: /\ state[i] = Leader 
+                                        /\ state[j] = Follower /\ commitIndex[j] >= 1
+                        => \A index \in 1..commitIndex[j]: \/ history[j][index].epoch >= currentEpoch[i]
+                                                           \/ /\ history[j][index].epoch < currentEpoch[i]
+                                                              /\ \E idx \in 1..commitIndex[i]: equal(history[i][idx], history[j][index])
 
-\* Liveness property
 
 (*
+Liveness property
+
  Suppose that:
     -A quorum Q of followers are up.
     -The followers in Q elect the same process l and l is up.
@@ -675,13 +700,7 @@ TotalOrder ==
 *) 
 
 
-(*   
-            
-Integrity == \A l, f \in Server, msg \in msgs:
-                /\ state[l] = Leader /\ state[f] = Follower
-                /\ msg.type = COMMIT /\ msg \in histroy[f]   
-                => msg \in history[l]
-
+(* 
 LivenessProperty1 == \A i, j \in Server, msg \in msgs:
                       (state[i] = Leader) /\ (msg.type = COMMIT)
                       ~> (msg \in history[j]) /\ (state[j] = Follower)
@@ -689,7 +708,7 @@ LivenessProperty1 == \A i, j \in Server, msg \in msgs:
 
 =============================================================================
 \* Modification History
-\* Last modified Fri Apr 16 23:08:02 CST 2021 by Dell
+\* Last modified Sun Apr 18 15:13:03 CST 2021 by Dell
 \* Created Sat Dec 05 13:32:08 CST 2020 by Dell
 
 
