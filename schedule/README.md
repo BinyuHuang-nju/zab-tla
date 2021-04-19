@@ -6,6 +6,7 @@
 
 2.	目前实现中没有用到原文中的Q，这是对leader的broadcast和某节点restart后的处理等都有关系的，是否需要使用Q？  
 	- 这里如果采用Q会有一些连锁反应，宕机和网络延迟变得可以表现出来，因为要对那么超出heartbeat的节点踢出Q中。
+	- broadcast需要修改为仅对Q内成员发送msg
 	- restart也是肯定需要修改的，进而Q也可能被更改，从而election可能需要被调用。因为一个server可能原本就在Q内，它宕机后迅速重启，leader能够ping通它；server也有可能宕机后过段时间才重启，leader认为heartbeat内无法ping通故(当然这也有可能是网络延迟故障)把它从Q中移除，此时若Q不满足多数派，那么还要执行election。故leader处的restart则election，follower处的restart则调用leader处的Timeout。
 	- 故加入Q后，我们就应该引入Timeout，这样才能对Q进行增删元素，若为Leader端的Timeout则将对应follower移除出Q，并当Q不满足quorum时调用election；若为follower端的Timeout则进行election
 
@@ -28,6 +29,10 @@
 2.	在规约properties的时候，仅靠当前定义的变量无法表达某个leader广播了某个事务，或某个follower接收或apply了某个事务。如果想要更准确表达properties，需要补上msgs传输和接收记录。
 	- 这里我想要补上set类型的broadcastMsgsLog，和array型的deliverIndex(阅读论文得知deliver replica类似于 apply state machine),原本想要定义的deliverLog可以省略，因为已deliver的log必然能在history中找到，否则该共识协议是有漏洞的。
 	- 除此以外，也许会有疑惑，我们可以假设每个committed的log立即被apply，那么默认deliverIndex = commitIndex，就不需要deliverIndex变量，这里我的想法是在Raft中可以这么想因为commitIndex不可能回退一个更小的值，但是在Zab中，宕机恢复/选主恢复阶段可能实现时会先让commitIndex=0
+
+## 与论文描述的差异
+1.	论文中leader接收到一个quorum消息才做某某动作，但这显然降低了可用性，因为leader本身自己应该也算入quorum中，否则对于3台服务器，若有一台down，那么leader的quorum最多只会有一台server不满足多数派的性质而无法运行下去，这显然是不合理的
+2.	文中对于message中的epoch与本地epoch不同时，通常是选择进行新一轮的election，但可能某些msg仅仅是过期的消息，接收后直接丢掉就可以而不需要重新进行选主降低效率
 
 ## 可做的code优化
 1.	基于工程角度，ACK-E和NEWLEADER通常不会发送整条log，故若这样设计，需要在之前的报文中得到follower的log信息，如log长度、commitIndex等。

@@ -41,10 +41,12 @@ NullPoint == CHOOSE p: p \notin Server
 \* The server's state(Follower,Leader,ProspectiveLeader).
 VARIABLE state
 
-\* The leader's epoch or the last new epoch proposal the follower acknowledged(f.p in paper).
+\* The leader's epoch or the last new epoch proposal the follower acknowledged
+\* (namely epoch of the last NEWEPOCH accepted, f.p in paper).
 VARIABLE currentEpoch
 
-\* The last new leader proposal the follower acknowledged(f.a in paper).
+\* The last new leader proposal the follower acknowledged
+\* (namely epoch of the last NEWLEADER accepted, f.a in paper).
 VARIABLE leaderEpoch
 
 \* The identifier of the leader for followers.
@@ -686,12 +688,8 @@ PrimaryIntegrity == \A i, j \in Server: /\ state[i] = Leader
                         => \A index \in 1..commitIndex[j]: \/ history[j][index].epoch >= currentEpoch[i]
                                                            \/ /\ history[j][index].epoch < currentEpoch[i]
                                                               /\ \E idx \in 1..commitIndex[i]: equal(history[i][idx], history[j][index])
-
-
 (*
 Liveness property
-
-WF(A): if A ever becomes enabled, then an A step will eventually occur
 
  Suppose that:
     -A quorum Q of followers are up.
@@ -699,17 +697,9 @@ WF(A): if A ever becomes enabled, then an A step will eventually occur
     -Messages between a follower in Q and l are received in a timely fashion.
  If l proposes a transaction a, then a is eventually committed.
 *) 
-
-
-(* 
-LivenessProperty1 == \A i, j \in Server, msg \in msgs:
-                      (state[i] = Leader) /\ (msg.type = COMMIT)
-                      ~> (msg \in history[j]) /\ (state[j] = Follower)
-*)
-
 =============================================================================
 \* Modification History
-\* Last modified Sun Apr 18 15:53:28 CST 2021 by Dell
+\* Last modified Mon Apr 19 21:50:44 CST 2021 by Dell
 \* Created Sat Dec 05 13:32:08 CST 2020 by Dell
 
 

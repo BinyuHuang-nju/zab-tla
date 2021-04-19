@@ -1,4 +1,4 @@
--------------------------------- MODULE ZabQ --------------------------------
+-------------------------------- MODULE ZabWithQ --------------------------------
 \* This is the formal specification for the Zab consensus algorithm,
 \* which means Zookeeper Atomic Broadcast.
 
@@ -41,10 +41,12 @@ NullPoint == CHOOSE p: p \notin Server
 \* The server's state(Follower,Leader,ProspectiveLeader).
 VARIABLE state
 
-\* The leader's epoch or the last new epoch proposal the follower acknowledged(f.p in paper).
+\* The leader's epoch or the last new epoch proposal the follower acknowledged
+\* (namely epoch of the last NEWEPOCH accepted, f.p in paper).
 VARIABLE currentEpoch
 
-\* The last new leader proposal the follower acknowledged(f.a in paper).
+\* The last new leader proposal the follower acknowledged
+\* (namely epoch of the last NEWLEADER accepted, f.a in paper).
 VARIABLE leaderEpoch
 
 \* The identifier of the leader for followers.
@@ -56,6 +58,9 @@ VARIABLE history
 \* The messages repersenting requests and responses sent from one server to another.
 \* msgs[i][j] means the input buffer of server j from server i.
 VARIABLE msgs
+
+\* The set of servers which the leader think follow itself (Q in paper).
+VARIABLE cluster
 
 \* The set of followers who has successfully sent CEPOCH to pleader in pleader.
 VARIABLE cepochRecv
@@ -105,7 +110,7 @@ VARIABLE tempInitialHistory
 VARIABLE proposalMsgsLog
 
 serverVars == <<state, currentEpoch, leaderEpoch, leaderOracle, history, commitIndex>>
-leaderVars == <<cepochRecv, ackeRecv, ackldRecv, ackIndex, currentCounter, sendCounter, initialHistory, committedIndex>>
+leaderVars == <<cluster, cepochRecv, ackeRecv, ackldRecv, ackIndex, currentCounter, sendCounter, initialHistory, committedIndex>>
 tempVars   == <<tempMaxEpoch, tempMaxLastEpoch, tempInitialHistory>>
 
 vars == <<serverVars, msgs, leaderVars, tempVars, cepochSent, proposalMsgsLog>>
@@ -120,9 +125,11 @@ Send(i, j, m) == msgs' = [msgs EXCEPT ![i][j] = Append(msgs[i][j], m)]
 Discard(i, j) == msgs' = IF msgs[i][j] /= << >> THEN [msgs EXCEPT ![i][j] = Tail(msgs[i][j])]
                                                 ELSE msgs
 
-\* Leader/Pleader broadcasts a message to all other servers
-Broadcast(i, m) == msgs' = [ii \in Server |-> [ij \in Server |-> IF ii = i /\ ij /= i THEN Append(msgs[ii][ij], m)
-                                                                                      ELSE msgs[ii][ij]]] 
+\* Leader/Pleader broadcasts a message to all other servers in Q
+Broadcast(i, m) == msgs' = [ii \in Server |-> [ij \in Server |-> IF /\ ii = i 
+                                                                    /\ ij /= i
+                                                                    /\ ij \in cluster[i] THEN Append(msgs[ii][ij], m)
+                                                                                         ELSE msgs[ii][ij]]] 
 
 \* Combination of Send and Discard - discard head of msgs[j][i] and add m into msgs[i][j]
 Reply(i, j, m) == msgs' = [msgs EXCEPT ![j][i] = Tail(msgs[j][i]),
@@ -139,6 +146,7 @@ Init == /\ state              = [s \in Server |-> Follower]
         /\ leaderOracle       = [s \in Server |-> NullPoint]
         /\ history            = [s \in Server |-> << >>]
         /\ msgs               = [i \in Server |-> [j \in Server |-> << >>]]
+        /\ cluster            = [i \in Server |-> {}]
         /\ cepochRecv         = [s \in Server |-> {}]
         /\ ackeRecv           = [s \in Server |-> {}]
         /\ ackldRecv          = [s \in Server |-> {}]
@@ -149,11 +157,10 @@ Init == /\ state              = [s \in Server |-> Follower]
         /\ committedIndex     = [s \in Server |-> 0]
         /\ initialHistory     = [s \in Server |-> << >>]
         /\ cepochSent         = [s \in Server |-> FALSE]
-        /\ tempMaxEpoch       = [s \in Server |-> 0]
-        
+        /\ tempMaxEpoch       = [s \in Server |-> 0]      
         /\ tempMaxLastEpoch   = [s \in Server |-> 0]
         /\ tempInitialHistory = [s \in Server |-> << >>]
-        /\ proposalMsgsLog   = {}
+        /\ proposalMsgsLog    = {}
 
 ----------------------------------------------------------------------------
 \* A server becomes pleader and a quorum servers knows that.
@@ -162,6 +169,7 @@ Election(i, Q) ==
         /\ state'              = [s \in Server |-> IF s = i THEN ProspectiveLeader
                                                             ELSE IF s \in Q THEN Follower
                                                                             ELSE state[s]]
+        /\ cluster'            = [cluster    EXCEPT ![i] = Q]
         /\ cepochRecv'         = [cepochRecv EXCEPT ![i] = {i}]
         /\ ackeRecv'           = [ackeRecv   EXCEPT ![i] = {i}]
         /\ ackldRecv'          = [ackldRecv  EXCEPT ![i] = {i}]
@@ -194,6 +202,16 @@ Restart(i) ==
         /\ cepochSent'   = [cepochSent EXCEPT ![i] = FALSE]
         /\ UNCHANGED <<currentEpoch, leaderEpoch, history, leaderVars, tempVars, proposalMsgsLog>>
         
+\* The leader finds timeout with another follower.
+LeaderTimeout(i, j) ==
+        /\ state[i] # Follower
+        /\ j \in cluster[i]
+        
+\* A follower finds timeout with the leader.
+FollowerTimeout(i) ==
+        /\ state[i] = Follower
+        /\ leaderOracle[i] # NullPoint
+
 ----------------------------------------------------------------------------
 \* In phase f11, follower sends f.p to pleader via CEPOCH.
 FollowerDiscovery1(i) ==
@@ -221,7 +239,7 @@ LeaderHandleCEPOCH(i, j) ==
                  IN tempMaxEpoch' = [tempMaxEpoch EXCEPT ![i] = newEpoch]
               /\ cepochRecv' = [cepochRecv EXCEPT ![i] = cepochRecv[i] \union {j}]
         /\ Discard(j, i)
-        /\ UNCHANGED <<serverVars, ackeRecv, ackldRecv, ackIndex, currentCounter, sendCounter, initialHistory,
+        /\ UNCHANGED <<serverVars, cluster, ackeRecv, ackldRecv, ackIndex, currentCounter, sendCounter, initialHistory,
                        committedIndex, cepochSent, tempMaxLastEpoch, tempInitialHistory, proposalMsgsLog>>
 
 \* Here I decide to change leader's epoch in l12&l21, otherwise there may exist an old leader and
@@ -231,8 +249,12 @@ LeaderDiscovery1(i) ==
         /\ cepochRecv[i] \in Quorums
         /\ leaderEpoch' = [leaderEpoch EXCEPT ![i] = tempMaxEpoch[i] + 1]
         /\ cepochRecv'  = [cepochRecv  EXCEPT ![i] = {}]
-        /\ Broadcast(i,[mtype  |-> NEWEPOCH,
-                        mepoch |-> leaderEpoch'[i]])
+        /\ cluster'     = [cluster     EXCEPT ![i] = cepochRecv[i]]
+        /\ LET m == [mtype|-> NEWEPOCH, mepoch|-> leaderEpoch'[i]]
+           IN msgs'     = [ii \in Server |-> [ij \in Server |-> IF /\ ii = i 
+                                                                   /\ ij /= i
+                                                                   /\ ij \in cepochRecv[i] THEN Append(msgs[ii][ij], m)
+                                                                                           ELSE msgs[ii][ij]]] 
         /\ UNCHANGED <<state, currentEpoch, leaderOracle, history, ackeRecv, ackldRecv, ackIndex, currentCounter, sendCounter,
                        initialHistory, commitIndex, committedIndex, cepochSent, tempVars, proposalMsgsLog>>
 
@@ -687,8 +709,6 @@ PrimaryIntegrity == \A i, j \in Server: /\ state[i] = Leader
                         => \A index \in 1..commitIndex[j]: \/ history[j][index].epoch >= currentEpoch[i]
                                                            \/ /\ history[j][index].epoch < currentEpoch[i]
                                                               /\ \E idx \in 1..commitIndex[i]: equal(history[i][idx], history[j][index])
-
-
 (*
 Liveness property
 
@@ -698,17 +718,9 @@ Liveness property
     -Messages between a follower in Q and l are received in a timely fashion.
  If l proposes a transaction a, then a is eventually committed.
 *) 
-
-
-(* 
-LivenessProperty1 == \A i, j \in Server, msg \in msgs:
-                      (state[i] = Leader) /\ (msg.type = COMMIT)
-                      ~> (msg \in history[j]) /\ (state[j] = Follower)
-*)
-
 =============================================================================
 \* Modification History
-\* Last modified Sun Apr 18 15:22:03 CST 2021 by Dell
+\* Last modified Mon Apr 19 22:35:35 CST 2021 by Dell
 \* Created Sat Dec 05 13:32:08 CST 2020 by Dell
 
 
