@@ -19,7 +19,7 @@ CONSTANTS Follower, Leader, ProspectiveLeader
 \* Message types
 CONSTANTS CEPOCH, NEWEPOCH, ACKE, NEWLEADER, ACKLD, COMMITLD, PROPOSE, ACK, COMMIT
 
-\* the maximum round of epoch (initially {0,1,2})£¬ currently not used
+\* the maximum round of epoch (initially {0,1,2}), currently not used
 CONSTANT Epoches
 ----------------------------------------------------------------------------
 \* Return the maximum value from the set S
@@ -149,11 +149,10 @@ Init == /\ state              = [s \in Server |-> Follower]
         /\ committedIndex     = [s \in Server |-> 0]
         /\ initialHistory     = [s \in Server |-> << >>]
         /\ cepochSent         = [s \in Server |-> FALSE]
-        /\ tempMaxEpoch       = [s \in Server |-> 0]
-        
+        /\ tempMaxEpoch       = [s \in Server |-> 0]      
         /\ tempMaxLastEpoch   = [s \in Server |-> 0]
         /\ tempInitialHistory = [s \in Server |-> << >>]
-        /\ proposalMsgsLog   = {}
+        /\ proposalMsgsLog    = {}
 
 ----------------------------------------------------------------------------
 \* A server becomes pleader and a quorum servers knows that.
@@ -692,6 +691,8 @@ PrimaryIntegrity == \A i, j \in Server: /\ state[i] = Leader
 (*
 Liveness property
 
+WF(A): if A ever becomes enabled, then an A step will eventually occur
+
  Suppose that:
     -A quorum Q of followers are up.
     -The followers in Q elect the same process l and l is up.
@@ -708,7 +709,7 @@ LivenessProperty1 == \A i, j \in Server, msg \in msgs:
 
 =============================================================================
 \* Modification History
-\* Last modified Sun Apr 18 15:13:03 CST 2021 by Dell
+\* Last modified Sun Apr 18 15:53:28 CST 2021 by Dell
 \* Created Sat Dec 05 13:32:08 CST 2020 by Dell
 
 
