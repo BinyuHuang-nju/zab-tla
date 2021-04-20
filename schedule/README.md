@@ -3,6 +3,7 @@
 ## 一些问题  
 1.	election中，对msgs的处理，目前的选择是对Q内任意两个server间的缓冲区均置为空，是否合理？  
 	- 关于这一点，也可以设计msgs为set类型，但是需要用2Darray模拟按序已发送/已接受的消息的最大ID，这样可以避免election时msgs的处理  
+	- 可能要参考纪业师兄的网络建模，这个在完成ZabWithQ后具体学习一下纪业师兄论文中的网络规约部分
 
 2.	目前实现中没有用到原文中的Q，这是对leader的broadcast和某节点restart后的处理等都有关系的，是否需要使用Q？  
 	- 这里如果采用Q会有一些连锁反应，宕机和网络延迟变得可以表现出来，因为要对那么超出heartbeat的节点踢出Q中。
@@ -10,17 +11,16 @@
 	- restart也是肯定需要修改的，进而Q也可能被更改，从而election可能需要被调用。因为一个server可能原本就在Q内，它宕机后迅速重启，leader能够ping通它；server也有可能宕机后过段时间才重启，leader认为heartbeat内无法ping通故(当然这也有可能是网络延迟故障)把它从Q中移除，此时若Q不满足多数派，那么还要执行election。故leader处的restart则election，follower处的restart则调用leader处的Timeout。
 	- 故加入Q后，我们就应该引入Timeout，这样才能对Q进行增删元素，若为Leader端的Timeout则将对应follower移除出Q，并当Q不满足quorum时调用election；若为follower端的Timeout则进行election
 
-3.	目前没有区分某个server发送给另一个server的输入/输出缓冲区，为了更好的表达延迟，输入缓冲区和输出缓冲区是否需要分开，即msgs会被分为sendMsgs和recvMsgs？  
 
-4.	验证liveness properties的困难
+3.	验证liveness properties的困难(由于确保liveness性质的条件较苛刻，这里先不考虑该性质)
   
-5.	restart的server是如何加入集群的？目前规约中用的是leader的broadcast是给所有server发送，故restart的server能够通过此加入集群，也就不用考虑该问题  
+4.	restart的server是如何加入集群的？目前规约中用的是leader的broadcast是给所有server发送，故restart的server能够通过此加入集群，也就不用考虑该问题  
 	- 如果不是这样实现，可能需要参考VSR中recover后的server给其他所有副本发送RECOVERY报文并根据多数派回复更新状态，我们可以在Zab中做类似恢复机制，然后再承接我规约中的Leader Handle CEPOCH/ACKE/ACKLD in Phase3(HandleACKE由于不需要处理在DiscardStaleMessage中简要处理) 
  
-6.	leader的broadcast是应该在一个转移动作内做完，还是每一个转移动作发出一条消息？(Raft TLA+是每个转移动作发送一条消息，而Paxos的proposer在每个转移动作内直接往msgs中存入一个不含source和dst的消息，相当于广播)每个动作发送一个更合理，因为能模拟可能发到一半leader节点就宕机的情况，但是在Zab中过于麻烦
+5.	考虑动作的原子性，leader的broadcast是应该在一个转移动作内做完，还是每一个转移动作发出一条消息？(Raft TLA+是每个转移动作发送一条消息，而Paxos的proposer在每个转移动作内直接往msgs中存入一个不含source和dst的消息，相当于广播)每个动作发送一个更合理，因为能模拟可能发到一半leader节点就宕机的情况，但是在Zab中过于麻烦
 
 
-7.	一个漏考虑的点，election后整个cluster内的epoch暂时还没有增加，这时候原先的leader发送消息，某个server接收到时发现epoch和自己的相同(或比自己大)，就将leaderOracle指向它，导致新leader失去多数派支持？	(也就是说，可能在新leader发送NEWEPOCH前失去多数派导致新一轮的election)
+6.	一个漏考虑的点，election后整个cluster内的epoch暂时还没有增加，这时候原先的leader发送消息，某个server接收到时发现epoch和自己的相同(或比自己大)，就将leaderOracle指向它，导致新leader失去多数派支持？	(也就是说，可能在新leader发送NEWEPOCH前失去多数派导致新一轮的election)
 	- 这个问题目前没有去考虑，我们可以认为这轮的recovery失败，然后重新开始election。
 
 ## 注意点
@@ -31,8 +31,11 @@
 	- 除此以外，也许会有疑惑，我们可以假设每个committed的log立即被apply，那么默认deliverIndex = commitIndex，就不需要deliverIndex变量，这里我的想法是在Raft中可以这么想因为commitIndex不可能回退一个更小的值，但是在Zab中，宕机恢复/选主恢复阶段可能实现时会先让commitIndex=0
 
 ## 与论文描述的差异
-1.	论文中leader接收到一个quorum消息才做某某动作，但这显然降低了可用性，因为leader本身自己应该也算入quorum中，否则对于3台服务器，若有一台down，那么leader的quorum最多只会有一台server不满足多数派的性质而无法运行下去，这显然是不合理的
-2.	文中对于message中的epoch与本地epoch不同时，通常是选择进行新一轮的election，但可能某些msg仅仅是过期的消息，接收后直接丢掉就可以而不需要重新进行选主降低效率
+1.	论文中leader接收到一个quorum消息才做某某动作，但这显然降低了可用性，因为leader本身自己应该也算入quorum中，否则对于3台服务器，若有一台down，那么leader的quorum最多只会有一台server不满足多数派的性质而无法运行下去，这显然是不合理的  
+2.	从论文来看leader的Q是通过接收到CEPOCH来确定的，而leader在失去多数派follower支持时会转为ELECTION状态，但是这样存在一个问题，那就是在leader还没接收到一个多数派的支持而时Q也不满足多数派，但在这个阶段进行重新的election显然是不合理的，故把Q在election阶段就进行了赋值，确保它始终是满足多数派	
+3.	文中对于message中的epoch与本地epoch不同时，通常是选择进行新一轮的election，但可能某些msg仅仅是过期的消息，接收后直接丢掉就可以而不需要重新进行选主降低效率
+4.	在phase1的leader等待接收到Q中每一个server的ACK-E后才选择做出更新并发出NEWLEADER的动作，我认为这个条件过于苛刻，所以还是选择当接收到一个多数派的ACK-E后就可以进行下一轮动作。因为这对算法的正确性不构成威胁。
+5.	因为新的server可能在任何时候加入cluster，其加入时会发送CEPOCH。但除此以外，我们假设当收到的COMMIT-LD、COMMIT中的commitIndex不匹配时，follower通过发送CEPOCH来寻求匹配。
 
 ## 可做的code优化
 1.	基于工程角度，ACK-E和NEWLEADER通常不会发送整条log，故若这样设计，需要在之前的报文中得到follower的log信息，如log长度、commitIndex等。
