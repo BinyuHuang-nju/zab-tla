@@ -19,6 +19,9 @@ CONSTANTS Follower, Leader, ProspectiveLeader
 \* Message types
 CONSTANTS CEPOCH, NEWEPOCH, ACKE, NEWLEADER, ACKLD, COMMITLD, PROPOSE, ACK, COMMIT
 
+\* Additional Message types used for recovery when restarting
+CONSTANTS RECOVERYREQUEST, RECOVERYRESPONSE
+
 \* the maximum round of epoch (initially {0,1,2}), currently not used
 CONSTANT Epoches
 ----------------------------------------------------------------------------
@@ -112,11 +115,20 @@ VARIABLE tempInitialHistory
 \* So the variable will only be changed in transition LeaderBroadcast1.
 VARIABLE proposalMsgsLog
 
+\* Helper set for server who restarts to collect which servers has responded to it.
+VARIABLE recoveryRespRecv
+
+\* the maximum epoch and corresponding leaderOracle in RECOVERYRESPONSE from followers.
+VARIABLE recoveryMaxEpoch
+VARIABLE recoveryMEOracle
+
+\* Persistent state of a server: history, currentEpoch, leaderEpoch
 serverVars == <<state, currentEpoch, leaderEpoch, leaderOracle, history, commitIndex>>
 leaderVars == <<cluster, cepochRecv, ackeRecv, ackldRecv, ackIndex, currentCounter, sendCounter, initialHistory, committedIndex>>
 tempVars   == <<tempMaxEpoch, tempMaxLastEpoch, tempInitialHistory>>
+recoveryVars == <<recoveryRespRecv, recoveryMaxEpoch, recoveryMEOracle>>
 
-vars == <<serverVars, msgs, leaderVars, tempVars, cepochSent, proposalMsgsLog>>
+vars == <<serverVars, msgs, leaderVars, tempVars, recoveryVars, cepochSent, proposalMsgsLog>>
 ----------------------------------------------------------------------------
 LastZxid(his) == IF Len(his) > 0 THEN <<his[Len(his)].epoch,his[Len(his)].counter>>
                                  ELSE <<-1, -1>>
@@ -135,6 +147,9 @@ Broadcast(i, m) == msgs' = [ii \in Server |-> [ij \in Server |-> IF /\ ii = i
                                                                     /\ ij # i
                                                                     /\ ij \in cluster[i] THEN Append(msgs[ii][ij], m)
                                                                                          ELSE msgs[ii][ij]]] 
+
+BroadcastToAll(i, m) == msgs' = [ii \in Server |-> [ij \in Server |-> IF /\ ii = i /\ ij # i THEN Append(msgs[ii][ij], m)
+                                                                                             ELSE msgs[ii][ij]]]
 
 \* Combination of Send and Discard - discard head of msgs[j][i] and add m into msgs[i][j]
 Reply(i, j, m) == msgs' = [msgs EXCEPT ![j][i] = Tail(msgs[j][i]),
@@ -167,9 +182,62 @@ Init == /\ state              = [s \in Server |-> Follower]
         /\ tempMaxEpoch       = [s \in Server |-> 0]      
         /\ tempMaxLastEpoch   = [s \in Server |-> 0]
         /\ tempInitialHistory = [s \in Server |-> << >>]
+        /\ recoveryRespRecv   = [s \in Server |-> {}]
+        /\ recoveryMaxEpoch   = [s \in Server |-> 0]
+        /\ recoveryMEOracle   = [s \in Server |-> NullPoint]
         /\ proposalMsgsLog    = {}
 
 ----------------------------------------------------------------------------
+\* A server halts and restarts.
+Restart(i) ==
+        /\ state'        = [state EXCEPT ![i] = Follower]
+        /\ leaderOracle' = [leaderOracle EXCEPT ![i] = NullPoint]
+        /\ commitIndex'  = [commitIndex EXCEPT ![i] = 0]   
+        /\ msgs'         = [ii \in Server |-> [ij \in Server |-> IF ij = i THEN << >>
+                                                                           ELSE msgs[ii][ij]]]       
+        /\ cepochSent'   = [cepochSent EXCEPT ![i] = FALSE]
+        /\ UNCHANGED <<currentEpoch, leaderEpoch, history, leaderVars, tempVars, recoveryVars, proposalMsgsLog>>
+
+\* Like Recovery protocol in View-stamped Replication, we let a server join in cluster
+\* by broadcast recovery and wait until receiving responses from a quorum of servers.
+RecoveryAfterRestart(i) ==
+        /\ state[i] = Follower
+        /\ leaderOracle[i] = NullPoint
+        /\ recoveryRespRecv' = [recoveryRespRecv EXCEPT ![i] = {}]
+        /\ recoveryMaxEpoch' = [recoveryMaxEpoch EXCEPT ![i] = currentEpoch[i]]
+        /\ recoveryMEOracle' = [recoveryMEOracle EXCEPT ![i] = NullPoint]
+        /\ BroadcastToAll(i, [mtype |-> RECOVERYREQUEST])
+        /\ UNCHANGED <<serverVars, leaderVars, tempVars, cepochSent, proposalMsgsLog>>
+
+HandleRecoveryRequest(i, j) ==
+        /\ msgs[j][i] /= << >>
+        /\ msgs[j][i][1].mtype = RECOVERYREQUEST
+        /\ Reply(i, j, [mtype   |-> RECOVERYRESPONSE,
+                        moracle |-> leaderOracle[i],
+                        mepoch  |-> currentEpoch[i]])
+        /\ UNCHANGED <<serverVars, leaderVars, tempVars, cepochSent, recoveryVars, proposalMsgsLog>>
+
+HandleRecoveryResponse(i, j) ==
+        /\ msgs[j][i] /= << >>
+        /\ msgs[j][i][1].mtype = RECOVERYRESPONSE
+        /\ LET msg    == msgs[j][i][1]
+               infoOk == /\ msg.mepoch >= recoveryMaxEpoch[i]
+                         /\ msg.moracle /= NullPoint
+           IN \/ /\ infoOk
+                 /\ recoveryMaxEpoch' = [recoveryMaxEpoch EXCEPT ![i] = msg.mepoch]
+                 /\ recoveryMEOracle' = [recoveryMEOracle EXCEPT ![i] = msg.moracle]
+              \/ /\ ~infoOk
+                 /\ UNCHANGED <<recoveryMaxEpoch, recoveryMEOracle>>
+        /\ Discard(j, i)
+        /\ recoveryRespRecv' = [recoveryRespRecv EXCEPT ![i] = IF j \in recoveryRespRecv[i] THEN recoveryRespRecv[i]
+                                                                                            ELSE recoveryRespRecv[i] \union {j}]
+        /\ UNCHANGED <<serverVars, leaderVars, tempVars, cepochSent, proposalMsgsLog>>
+
+FindCluster(i) == 
+        /\ state[i] = Follower
+        /\ leaderOracle[i] = NullPoint
+        
+----------------------------------------------------------------------------     
 \* A server becomes pleader and a quorum servers knows that.
 Election(i, Q) ==
         /\ i \in Q
@@ -199,20 +267,10 @@ Election(i, Q) ==
                                                                              ELSE msgs[ii][ij]]]
         \*/\ UNCHANGED <<currentEpoch, history, commitIndex, currentCounter, sendCounter, proposalMsgsLog>>
 
-\* A server halts and restarts.
-Restart(i) ==
-        /\ state'        = [state EXCEPT ![i] = Follower]
-        /\ leaderOracle' = [leaderOracle EXCEPT ![i] = NullPoint]
-        /\ commitIndex'  = [commitIndex EXCEPT ![i] = 0]   
-        /\ msgs'         = [ii \in Server |-> [ij \in Server |-> IF ij = i THEN << >>
-                                                                           ELSE msgs[ii][ij]]]       
-        /\ cepochSent'   = [cepochSent EXCEPT ![i] = FALSE]
-        /\ UNCHANGED <<currentEpoch, leaderEpoch, history, leaderVars, tempVars, proposalMsgsLog>>
-        
 \* The leader finds timeout with another follower.
 LeaderTimeout(i, j) ==
         /\ state[i] # Follower
-        /\ j # i
+        /\ j /= i
         /\ j \in cluster[i]
         /\ LET newCluster == cluster[i] \ {j}
            IN /\ \/ /\ newCluster \in Quorums
@@ -229,7 +287,6 @@ LeaderTimeout(i, j) ==
 \* A follower finds timeout with the leader.
 FollowerTimeout(i) ==
         /\ state[i] = Follower
-        /\ leaderOracle[i] # NullPoint
         /\ LET Q == CHOOSE q \in Quorums: i \in q
                v == CHOOSE s \in Q: TRUE
            IN Election(v, Q)
@@ -790,7 +847,7 @@ Liveness property
 *) 
 =============================================================================
 \* Modification History
-\* Last modified Wed Apr 21 13:47:56 CST 2021 by Dell
+\* Last modified Wed Apr 21 22:49:26 CST 2021 by Dell
 \* Created Sat Dec 05 13:32:08 CST 2020 by Dell
 
 
