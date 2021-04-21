@@ -143,6 +143,8 @@ Reply(i, j, m) == msgs' = [msgs EXCEPT ![j][i] = Tail(msgs[j][i]),
 Reply2(i, j, m1, m2) == msgs' = [msgs EXCEPT ![j][i] = Tail(msgs[j][i]),
                                              ![i][j] = Append(Append(msgs[i][j], m1), m2)]
 
+clean(i, j) == msgs' = [msgs EXCEPT ![i][j] = << >>, ![j][i] = << >>]
+
 ----------------------------------------------------------------------------
 \* Define initial values for all variables 
 Init == /\ state              = [s \in Server |-> Follower]
@@ -195,7 +197,7 @@ Election(i, Q) ==
         /\ msgs'               = [ii \in Server |-> [ij \in Server |-> 
                                                      IF ii \in Q /\ ij \in Q THEN << >>
                                                                              ELSE msgs[ii][ij]]]
-        /\ UNCHANGED <<currentEpoch, history, commitIndex, currentCounter, sendCounter, proposalMsgsLog>>
+        \*/\ UNCHANGED <<currentEpoch, history, commitIndex, currentCounter, sendCounter, proposalMsgsLog>>
 
 \* A server halts and restarts.
 Restart(i) ==
@@ -210,12 +212,28 @@ Restart(i) ==
 \* The leader finds timeout with another follower.
 LeaderTimeout(i, j) ==
         /\ state[i] # Follower
+        /\ j # i
         /\ j \in cluster[i]
+        /\ LET newCluster == cluster[i] \ {j}
+           IN /\ \/ /\ newCluster \in Quorums
+                    /\ cluster' = [cluster EXCEPT ![i] = newCluster]
+                    /\ clean(i, j)
+                    /\ UNCHANGED<<state, cepochRecv,ackeRecv, ackldRecv, ackIndex, committedIndex, initialHistory,
+                                  tempMaxEpoch, tempMaxLastEpoch, tempInitialHistory, leaderOracle, leaderEpoch, cepochSent>>
+                 \/ /\ newCluster \notin Quorums
+                    /\ LET Q == CHOOSE q \in Quorums: i \in q
+                           v == CHOOSE s \in Q: TRUE
+                       IN Election(v, Q)
+        /\ UNCHANGED <<currentEpoch, history, commitIndex, currentCounter, sendCounter, proposalMsgsLog>>
         
 \* A follower finds timeout with the leader.
 FollowerTimeout(i) ==
         /\ state[i] = Follower
         /\ leaderOracle[i] # NullPoint
+        /\ LET Q == CHOOSE q \in Quorums: i \in q
+               v == CHOOSE s \in Q: TRUE
+           IN Election(v, Q)
+        /\ UNCHANGED <<currentEpoch, history, commitIndex, currentCounter, sendCounter, proposalMsgsLog>>
 
 ----------------------------------------------------------------------------
 \* In phase f11, follower sends f.p to pleader via CEPOCH.
@@ -416,14 +434,20 @@ FollowerSync2(i, j) ==
            IN \/ \* new COMMIT-LD - commit all transactions in initial history
                  \* Regradless of Restart, it must be true because one will receive NEWLEADER before receiving COMMIT-LD
                  /\ currentEpoch[i] = msg.mepoch
-                 /\ commitIndex'  = [commitIndex  EXCEPT ![i] = Len(history[i])]
-                 /\ leaderOracle' = [leaderOracle EXCEPT ![i] = j]
+                 /\ leaderOracle' = [leaderOracle EXCEPT ![i] = j] \* unnecessary
+                 /\ \/ /\ Len(history[i]) = msg.mlength
+                       /\ commitIndex'  = [commitIndex EXCEPT ![i] = Len(history[i])]
+                       /\ Discard(j, i)
+                    \/ /\ Len(history[i]) # msg.mlength
+                       /\ Reply(i, j, [mtype |-> CEPOCH,
+                                       mepoch|-> currentEpoch[i]])
+                       /\ UNCHANGED commitIndex
               \/ \* > : stale COMMIT-LD - discard
                  \* < : In our implementation, '<' does not exist due to the guarantee of Restart
                  \* < : If '<' exists, we can discard it and handle it in phase3
                  /\ currentEpoch[i] /= msg.mepoch
+                 /\ Discard(j, i)
                  /\ UNCHANGED <<commitIndex, leaderOracle>>
-        /\ Discard(j, i)
         /\ UNCHANGED <<state, currentEpoch, leaderOracle, history, leaderVars, tempVars, cepochSent, proposalMsgsLog>>
 
 ----------------------------------------------------------------------------
@@ -522,18 +546,23 @@ FollowerBroadcast2(i, j) ==
         /\ LET msg == msgs[j][i][1]
            IN \/ /\ currentEpoch[i] = msg.mepoch
                  /\ leaderOracle' = [leaderOracle EXCEPT ![i] = j]
-                 /\ \/ \* new COMMIT - commit transaction in history
-                       /\ commitIndex[i] + 1 = msg.mindex
-                       /\ commitIndex' = [commitIndex EXCEPT ![i] = msg.mindex]
-                    \/ \* It may happen when the server is a new follower who joined in the cluster,
-                       \* and it misses the corresponding PROPOSE.
-                       /\ commitIndex[i] + 1 # msg.mindex
-                       /\ Send(i, j, [mtype |-> CEPOCH,
-                                      mepoch|-> currentEpoch[i]])
+                 /\ LET infoOk == /\ Len(history[i]) >= msg.mindex
+                                  /\ history[i][msg.mindex].epoch = msg.mepoch
+                                  /\ history[i][msg.mindex].counter = msg.mcounter
+                    IN \/ \* new COMMIT - commit transaction in history
+                          /\ infoOk
+                          /\ commitIndex' = [commitIndex EXCEPT ![i] = Maximum({commitIndex[i], msg.mindex})]
+                          /\ Discard(j, i)
+                       \/ \* It may happen when the server is a new follower who joined in the cluster,
+                          \* and it misses the corresponding PROPOSE.
+                          /\ ~infoOk
+                          /\ Reply(i, j, [mtype |-> CEPOCH,
+                                          mepoch|-> currentEpoch[i]])
+                          /\ UNCHANGED commitIndex
               \/ \* stale COMMIT - discard
                  /\ currentEpoch[i] /= msg.mepoch
+                 /\ Discard(j, i)
                  /\ UNCHANGED <<commitIndex, leaderOracle>>
-        /\ Discard(j, i)
         /\ UNCHANGED <<state, currentEpoch, leaderEpoch, history, 
                        leaderVars, tempVars, cepochSent, proposalMsgsLog>>
 
@@ -577,7 +606,9 @@ LeaderHandleACKLDinPhase3(i, j) ==
                                  mcounter |-> history[aimCommitIndex].counter])
               \/ /\ currentEpoch[i] /= msg.mepoch
                  /\ Discard(j, i)
-                 /\ UNCHANGED <<ackIndex>>
+                 /\ UNCHANGED ackIndex
+        /\ cluster' = [cluster EXCEPT ![i] = IF j \in cluster[i] THEN cluster[i]
+                                                                 ELSE cluster[i] \union {j}]
         /\ UNCHANGED <<serverVars, cepochRecv, ackeRecv, ackldRecv, currentCounter, sendCounter, 
                        initialHistory, committedIndex, tempVars, cepochSent, proposalMsgsLog>>
 
@@ -634,7 +665,9 @@ DiscardStaleMessage(i) ==
 \* Defines how the variables may transition.
 Next ==
         \/ \E i \in Server:      Restart(i)
-        \/ \E i \in Server, Q \in Quorums: Election(i, Q)
+        \* \/ \E i \in Server, Q \in Quorums: Election(i, Q)
+        \/ \E i, j \in Server:   LeaderTimeout(i, j)
+        \/ \E i \in Server:      FollowerTimeout(i) 
         \/ \E i \in Server:      FollowerDiscovery1(i)
         \/ \E i, j \in Server:   LeaderHandleCEPOCH(i, j)
         \/ \E i \in Server:      LeaderDiscovery1(i)
@@ -757,7 +790,7 @@ Liveness property
 *) 
 =============================================================================
 \* Modification History
-\* Last modified Tue Apr 20 23:29:19 CST 2021 by Dell
+\* Last modified Wed Apr 21 13:47:56 CST 2021 by Dell
 \* Created Sat Dec 05 13:32:08 CST 2020 by Dell
 
 
