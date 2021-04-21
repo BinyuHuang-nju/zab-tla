@@ -36,6 +36,7 @@
 3.	文中对于message中的epoch与本地epoch不同时，通常是选择进行新一轮的election，但可能某些msg仅仅是过期的消息，接收后直接丢掉就可以而不需要重新进行选主降低效率
 4.	在phase1的leader等待接收到Q中每一个server的ACK-E后才选择做出更新并发出NEWLEADER的动作，我认为这个条件过于苛刻，所以还是选择当接收到一个多数派的ACK-E后就可以进行下一轮动作。因为这对算法的正确性不构成威胁。
 5.	因为新的server可能在任何时候加入cluster，其加入时会发送CEPOCH。但除此以外，我们假设当收到的COMMIT-LD、COMMIT中的commitIndex不匹配时，follower通过发送CEPOCH来寻求匹配。
+6.	关于新节点如何加入cluster，论文中没有说明，仅说当leader收到CEPOCH和ACKLD时进行回复，并将新节点加入cluster。因为VSR中recover后的server给其他所有副本发送RECOVERY报文并根据多数派回复更新状态，我这里采用类似做法
 
 ## 可做的code优化
 1.	基于工程角度，ACK-E和NEWLEADER通常不会发送整条log，故若这样设计，需要在之前的报文中得到follower的log信息，如log长度、commitIndex等。
