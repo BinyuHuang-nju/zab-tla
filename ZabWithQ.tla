@@ -302,19 +302,20 @@ FindCluster(i) ==
         /\ state[i] = Follower
         /\ leaderOracle[i] = NullPoint
         /\ recoveryRespRecv[i] \in Quorums
-        /\ currentEpoch' = [currentEpoch EXCEPT ![i] = recoveryMaxEpoch[i]]
         /\ LET infoOk == /\ recoveryMEOracle[i] /= i
                          /\ recoveryMEOracle[i] /= NullPoint
            IN \/ /\ ~infoOk
                  /\ \E Q \in Quorums: /\ i \in Q
                                       /\ \E v \in Q: Election(v, Q)
+                 /\ UNCHANGED currentEpoch
               \/ /\ infoOk
+                 /\ currentEpoch' = [currentEpoch EXCEPT ![i] = recoveryMaxEpoch[i]]
                  /\ leaderOracle' = [leaderOracle EXCEPT ![i] = recoveryMEOracle[i]]
                  /\ Send(i, recoveryMEOracle[i], [mtype |-> CEPOCH,
                                                   mepoch|-> recoveryMaxEpoch[i]])
                  /\ UNCHANGED <<state, cluster, cepochRecv, ackeRecv, ackldRecv, ackIndex, committedIndex, initialHistory,
                              tempMaxEpoch, tempMaxLastEpoch, tempInitialHistory, leaderEpoch, cepochSent>>
-        /\ UNCHANGED <<currentEpoch, history, commitIndex, currentCounter, sendCounter, recoveryVars, proposalMsgsLog>>
+        /\ UNCHANGED <<history, commitIndex, currentCounter, sendCounter, recoveryVars, proposalMsgsLog>>
         
 ----------------------------------------------------------------------------
 \* In phase f11, follower sends f.p to pleader via CEPOCH.
@@ -432,11 +433,11 @@ LeaderHandleACKE(i, j) ==
 LeaderDiscovery2Sync1(i) ==
         /\ state[i] = ProspectiveLeader
         /\ ackeRecv[i] \in Quorums
-        /\ currentEpoch'   = [currentEpoch   EXCEPT ![i] = leaderEpoch[i]]
-        /\ history'        = [history        EXCEPT ![i] = tempInitialHistory[i]]
-        /\ initialHistory' = [initialHistory EXCEPT ![i] = tempInitialHistory[i]]
-        /\ ackeRecv'       = [ackeRecv       EXCEPT ![i] = {NullPoint}]
-        /\ ackIndex'       = [ackIndex       EXCEPT ![i] = Len(tempInitialHistory[i])]
+        /\ currentEpoch'   = [currentEpoch   EXCEPT ![i]    = leaderEpoch[i]]
+        /\ history'        = [history        EXCEPT ![i]    = tempInitialHistory[i]]
+        /\ initialHistory' = [initialHistory EXCEPT ![i]    = tempInitialHistory[i]]
+        /\ ackeRecv'       = [ackeRecv       EXCEPT ![i]    = {NullPoint}]
+        /\ ackIndex'       = [ackIndex       EXCEPT ![i][i] = Len(tempInitialHistory[i])]
         \* until now, phase1(Discovery) ends
         /\ Broadcast(i, [mtype           |-> NEWLEADER,
                          mepoch          |-> currentEpoch[i],
@@ -887,7 +888,7 @@ Liveness property
 *) 
 =============================================================================
 \* Modification History
-\* Last modified Sun Apr 25 21:10:32 CST 2021 by Dell
+\* Last modified Sun Apr 25 21:23:46 CST 2021 by Dell
 \* Created Sat Dec 05 13:32:08 CST 2020 by Dell
 
 
