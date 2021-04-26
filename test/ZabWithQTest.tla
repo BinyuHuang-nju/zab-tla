@@ -332,17 +332,15 @@ FindCluster(i) ==
         /\ LET infoOk == /\ recoveryMEOracle[i] /= i
                          /\ recoveryMEOracle[i] /= NullPoint
            IN \/ /\ ~infoOk
-                 /\ \E Q \in Quorums: /\ i \in Q
-                                      /\ \E v \in Q: Election(v, Q)
-                 /\ UNCHANGED currentEpoch
+                    \* \E Q \in Quorums: /\ i \in Q
+                    \*                   /\ \E v \in Q: Election(v, Q)
+                 /\ UNCHANGED <<currentEpoch, leaderOracle, msgs>>
               \/ /\ infoOk
                  /\ currentEpoch' = [currentEpoch EXCEPT ![i] = recoveryMaxEpoch[i]]
                  /\ leaderOracle' = [leaderOracle EXCEPT ![i] = recoveryMEOracle[i]]
                  /\ Send(i, recoveryMEOracle[i], [mtype |-> CEPOCH,
                                                   mepoch|-> recoveryMaxEpoch[i]])
-                 /\ UNCHANGED <<state, cluster, cepochRecv, ackeRecv, ackldRecv, ackIndex, committedIndex, initialHistory,
-                             tempMaxEpoch, tempMaxLastEpoch, tempInitialHistory, leaderEpoch, cepochSent>>
-        /\ UNCHANGED <<history, commitIndex, currentCounter, sendCounter, recoveryVars, proposalMsgsLog>>
+        /\ UNCHANGED <<state, leaderEpoch, history, commitIndex, leaderVars, tempVars, recoveryVars, cepochSent, proposalMsgsLog>>
         
 ----------------------------------------------------------------------------
 \* In phase f11, follower sends f.p to pleader via CEPOCH.
@@ -363,7 +361,7 @@ FollowerDiscovery1(i) ==
 \* as its own l.p and sends NEWEPOCH to followers.                 
 LeaderHandleCEPOCH(i, j) ==
         \* test restrictions
-        /\ currentEpoch[i] <= 2
+        /\ tempMaxEpoch[i] <= 2
         /\ Len(history[i]) <= 2
         /\ state[i] = ProspectiveLeader
         /\ msgs[j][i] /= << >>
@@ -395,7 +393,7 @@ LeaderHandleCEPOCH(i, j) ==
 \* a new leader who share the same expoch. So here I just change leaderEpoch, and use it in handling ACK-E.
 LeaderDiscovery1(i) ==
         \* test restrictions
-        /\ currentEpoch[i] <= 2
+        /\ tempMaxEpoch[i] <= 2
         /\ Len(history[i]) <= 2
         /\ state[i] = ProspectiveLeader
         /\ cepochRecv[i] \in Quorums
@@ -793,6 +791,7 @@ BecomeFollower(i) ==
         \* test restrictions
         /\ currentEpoch[i] <= 2
         /\ Len(history[i]) <= 2
+        /\ state[i] /= Follower
         /\ \E j \in Server \ {i}: /\ msgs[j][i] /= << >>   
                                   /\ msgs[j][i][1].mtype /= RECOVERYREQUEST
                                   /\ msgs[j][i][1].mtype /= RECOVERYRESPONSE
@@ -972,7 +971,7 @@ Liveness property
 *) 
 =============================================================================
 \* Modification History
-\* Last modified Sun Apr 25 21:25:07 CST 2021 by Dell
+\* Last modified Mon Apr 26 15:54:59 CST 2021 by Dell
 \* Created Sat Dec 05 13:32:08 CST 2020 by Dell
 
 
