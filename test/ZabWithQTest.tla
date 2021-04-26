@@ -818,18 +818,18 @@ DiscardStaleMessage(i) ==
                                   /\ msgs[j][i][1].mtype /= RECOVERYRESPONSE
                                   /\ LET msg == msgs[j][i][1]
                                      IN \/ /\ state[i] = Follower
-                                           /\ \/ msg.mepoch < currentEpoch[i]
+                                           /\ \* \/ msg.mepoch < currentEpoch[i] \* Discussed before.
                                               \/ msg.mtype = CEPOCH
                                               \/ msg.mtype = ACKE
                                               \/ msg.mtype = ACKLD
                                               \/ msg.mtype = ACK
                                         \/ /\ state[i] = Leader 
                                            /\ msg.mtype /= CEPOCH
-                                           /\ \/ msg.mepoch < currentEpoch[i] 
+                                           /\ \/ msg.mepoch <= currentEpoch[i] 
                                               \/ msg.mtype = ACKE \* response of NEWEPOCH
                                         \/ /\ state[i] = ProspectiveLeader
                                            /\ msg.mtype /= CEPOCH
-                                           /\ \/ msg.mepoch < currentEpoch[i]
+                                           /\ \/ msg.mepoch <= currentEpoch[i]
                                               \/ msg.mtype = ACK
                                   /\ Discard(j ,i)
         /\ UNCHANGED <<serverVars, leaderVars, tempVars, cepochSent, recoveryVars, proposalMsgsLog>>
@@ -971,7 +971,7 @@ Liveness property
 *) 
 =============================================================================
 \* Modification History
-\* Last modified Mon Apr 26 15:54:59 CST 2021 by Dell
+\* Last modified Mon Apr 26 21:48:25 CST 2021 by Dell
 \* Created Sat Dec 05 13:32:08 CST 2020 by Dell
 
 

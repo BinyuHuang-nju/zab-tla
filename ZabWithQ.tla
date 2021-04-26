@@ -305,17 +305,13 @@ FindCluster(i) ==
         /\ LET infoOk == /\ recoveryMEOracle[i] /= i
                          /\ recoveryMEOracle[i] /= NullPoint
            IN \/ /\ ~infoOk
-                 /\ \E Q \in Quorums: /\ i \in Q
-                                      /\ \E v \in Q: Election(v, Q)
-                 /\ UNCHANGED currentEpoch
+                 /\ UNCHANGED <<currentEpoch, leaderOracle, msgs>>
               \/ /\ infoOk
                  /\ currentEpoch' = [currentEpoch EXCEPT ![i] = recoveryMaxEpoch[i]]
                  /\ leaderOracle' = [leaderOracle EXCEPT ![i] = recoveryMEOracle[i]]
                  /\ Send(i, recoveryMEOracle[i], [mtype |-> CEPOCH,
                                                   mepoch|-> recoveryMaxEpoch[i]])
-                 /\ UNCHANGED <<state, cluster, cepochRecv, ackeRecv, ackldRecv, ackIndex, committedIndex, initialHistory,
-                             tempMaxEpoch, tempMaxLastEpoch, tempInitialHistory, leaderEpoch, cepochSent>>
-        /\ UNCHANGED <<history, commitIndex, currentCounter, sendCounter, recoveryVars, proposalMsgsLog>>
+        /\ UNCHANGED <<state, leaderEpoch, history, commitIndex, leaderVars, tempVars, recoveryVars, cepochSent, proposalMsgsLog>>
         
 ----------------------------------------------------------------------------
 \* In phase f11, follower sends f.p to pleader via CEPOCH.
@@ -706,6 +702,7 @@ LeaderHandleACKLDinPhase3(i, j) ==
 \*    which means there are some transactions before mindex miss. Here we choose to send CEPOCH 
 \*    again, to receive the newest history from leader.
 BecomeFollower(i) ==
+        /\ state[i] /= Follower
         /\ \E j \in Server \ {i}: /\ msgs[j][i] /= << >>   
                                   /\ msgs[j][i][1].mtype /= RECOVERYREQUEST
                                   /\ msgs[j][i][1].mtype /= RECOVERYRESPONSE
@@ -729,18 +726,18 @@ DiscardStaleMessage(i) ==
                                   /\ msgs[j][i][1].mtype /= RECOVERYRESPONSE
                                   /\ LET msg == msgs[j][i][1]
                                      IN \/ /\ state[i] = Follower
-                                           /\ \/ msg.mepoch < currentEpoch[i]
+                                           /\ \* \/ msg.mepoch < currentEpoch[i] \* Discussed before.
                                               \/ msg.mtype = CEPOCH
                                               \/ msg.mtype = ACKE
                                               \/ msg.mtype = ACKLD
                                               \/ msg.mtype = ACK
                                         \/ /\ state[i] = Leader 
                                            /\ msg.mtype /= CEPOCH
-                                           /\ \/ msg.mepoch < currentEpoch[i] 
+                                           /\ \/ msg.mepoch <= currentEpoch[i] 
                                               \/ msg.mtype = ACKE \* response of NEWEPOCH
                                         \/ /\ state[i] = ProspectiveLeader
                                            /\ msg.mtype /= CEPOCH
-                                           /\ \/ msg.mepoch < currentEpoch[i]
+                                           /\ \/ msg.mepoch <= currentEpoch[i]
                                               \/ msg.mtype = ACK
                                   /\ Discard(j ,i)
         /\ UNCHANGED <<serverVars, leaderVars, tempVars, cepochSent, recoveryVars, proposalMsgsLog>>
@@ -888,7 +885,7 @@ Liveness property
 *) 
 =============================================================================
 \* Modification History
-\* Last modified Sun Apr 25 21:23:46 CST 2021 by Dell
+\* Last modified Mon Apr 26 21:48:14 CST 2021 by Dell
 \* Created Sat Dec 05 13:32:08 CST 2020 by Dell
 
 
