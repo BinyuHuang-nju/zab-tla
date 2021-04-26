@@ -1,4 +1,4 @@
-# Document of TLA+ specification for Zab(中文版，须翻译到英文)
+# Document of TLA+ specification for Zab(中文版，公开时用gitignore隐藏)
 
 ## 概述
 -	本实验是由论文"Junqueira F P, Reed B C, Serafini M. Zab: High-performance broadcast for primary-backup systems[C]//2011 IEEE/IFIP 41st International Conference on Dependable Systems & Networks (DSN). IEEE, 2011: 245-256."启发。本实验根据该论文描述的Zab协议进行了Zab的TLA+规约。
