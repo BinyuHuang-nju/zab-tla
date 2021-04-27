@@ -124,11 +124,13 @@ VARIABLE recoveryMaxEpoch
 
 VARIABLE recoveryMEOracle
 
+VARIABLE recoverySent
+
 \* Persistent state of a server: history, currentEpoch, leaderEpoch
 serverVars == <<state, currentEpoch, leaderEpoch, leaderOracle, history, commitIndex>>
 leaderVars == <<cluster, cepochRecv, ackeRecv, ackldRecv, ackIndex, currentCounter, sendCounter, initialHistory, committedIndex>>
 tempVars   == <<tempMaxEpoch, tempMaxLastEpoch, tempInitialHistory>>
-recoveryVars == <<recoveryRespRecv, recoveryMaxEpoch, recoveryMEOracle>>
+recoveryVars == <<recoveryRespRecv, recoveryMaxEpoch, recoveryMEOracle, recoverySent>>
 
 vars == <<serverVars, msgs, leaderVars, tempVars, recoveryVars, cepochSent, proposalMsgsLog>>
 ----------------------------------------------------------------------------
@@ -187,13 +189,14 @@ Init == /\ state              = [s \in Server |-> Follower]
         /\ recoveryRespRecv   = [s \in Server |-> {}]
         /\ recoveryMaxEpoch   = [s \in Server |-> 0]
         /\ recoveryMEOracle   = [s \in Server |-> NullPoint]
+        /\ recoverySent       = [s \in Server |-> FALSE]
         /\ proposalMsgsLog    = {}
 
 ----------------------------------------------------------------------------     
 \* A server becomes pleader and a quorum servers knows that.
 Election(i, Q) ==
         \* test restrictions
-        /\ \A s \in Server: currentEpoch[s] <= 2 /\ Len(history[s]) <= 2
+        /\ \A s \in Server: currentEpoch[s] <= 1 /\ Len(history[s]) <= 2
         /\ i \in Q
         /\ state'              = [s \in Server |-> IF s = i THEN ProspectiveLeader
                                                             ELSE IF s \in Q THEN Follower
@@ -266,6 +269,8 @@ FollowerTimeout(i) ==
 
 ----------------------------------------------------------------------------
 \* A server halts and restarts.
+\* Like Recovery protocol in View-stamped Replication, we let a server join in cluster
+\* by broadcast recovery and wait until receiving responses from a quorum of servers.
 Restart(i) ==
         \* test restrictions
         /\ currentEpoch[i] <= 2
@@ -275,20 +280,22 @@ Restart(i) ==
         /\ commitIndex'  = [commitIndex  EXCEPT ![i] = 0]   
         /\ cepochSent'   = [cepochSent   EXCEPT ![i] = FALSE]
         /\ msgs'         = [ii \in Server |-> [ij \in Server |-> IF ij = i THEN << >>
-                                                                           ELSE msgs[ii][ij]]]       
-        /\ UNCHANGED <<currentEpoch, leaderEpoch, history, leaderVars, tempVars, recoveryVars, proposalMsgsLog>>
+                                                                           ELSE msgs[ii][ij]]]  
+        /\ recoverySent' = [recoverySent EXCEPT ![i] = FALSE]     
+        /\ UNCHANGED <<currentEpoch, leaderEpoch, history, leaderVars, tempVars, 
+                       recoveryRespRecv, recoveryMaxEpoch, recoveryMEOracle, proposalMsgsLog>>
 
-\* Like Recovery protocol in View-stamped Replication, we let a server join in cluster
-\* by broadcast recovery and wait until receiving responses from a quorum of servers.
 RecoveryAfterRestart(i) ==
         \* test restrictions
         /\ currentEpoch[i] <= 2
         /\ Len(history[i]) <= 2
         /\ state[i] = Follower
         /\ leaderOracle[i] = NullPoint
+        /\ \lnot recoverySent[i]
         /\ recoveryRespRecv' = [recoveryRespRecv EXCEPT ![i] = {}]
         /\ recoveryMaxEpoch' = [recoveryMaxEpoch EXCEPT ![i] = currentEpoch[i]]
         /\ recoveryMEOracle' = [recoveryMEOracle EXCEPT ![i] = NullPoint]
+        /\ recoverySent'     = [recoverySent     EXCEPT ![i] = TRUE]
         /\ BroadcastToAll(i, [mtype |-> RECOVERYREQUEST])
         /\ UNCHANGED <<serverVars, leaderVars, tempVars, cepochSent, proposalMsgsLog>>
 
@@ -320,7 +327,7 @@ HandleRecoveryResponse(i, j) ==
         /\ Discard(j, i)
         /\ recoveryRespRecv' = [recoveryRespRecv EXCEPT ![i] = IF j \in recoveryRespRecv[i] THEN recoveryRespRecv[i]
                                                                                             ELSE recoveryRespRecv[i] \union {j}]
-        /\ UNCHANGED <<serverVars, leaderVars, tempVars, cepochSent, proposalMsgsLog>>
+        /\ UNCHANGED <<serverVars, leaderVars, tempVars, cepochSent, recoverySent, proposalMsgsLog>>
 
 FindCluster(i) == 
         \* test restrictions
@@ -331,16 +338,18 @@ FindCluster(i) ==
         /\ recoveryRespRecv[i] \in Quorums
         /\ LET infoOk == /\ recoveryMEOracle[i] /= i
                          /\ recoveryMEOracle[i] /= NullPoint
+                         /\ currentEpoch[i] <= recoveryMaxEpoch[i]
            IN \/ /\ ~infoOk
-                    \* \E Q \in Quorums: /\ i \in Q
-                    \*                   /\ \E v \in Q: Election(v, Q)
+                 /\ recoverySent' = [recoverySent EXCEPT ![i] = FALSE]
                  /\ UNCHANGED <<currentEpoch, leaderOracle, msgs>>
               \/ /\ infoOk
                  /\ currentEpoch' = [currentEpoch EXCEPT ![i] = recoveryMaxEpoch[i]]
                  /\ leaderOracle' = [leaderOracle EXCEPT ![i] = recoveryMEOracle[i]]
                  /\ Send(i, recoveryMEOracle[i], [mtype |-> CEPOCH,
                                                   mepoch|-> recoveryMaxEpoch[i]])
-        /\ UNCHANGED <<state, leaderEpoch, history, commitIndex, leaderVars, tempVars, recoveryVars, cepochSent, proposalMsgsLog>>
+                 /\ UNCHANGED recoverySent
+        /\ UNCHANGED <<state, leaderEpoch, history, commitIndex, leaderVars, tempVars, 
+                       recoveryRespRecv, recoveryMaxEpoch, recoveryMEOracle, cepochSent, proposalMsgsLog>>
         
 ----------------------------------------------------------------------------
 \* In phase f11, follower sends f.p to pleader via CEPOCH.
@@ -361,7 +370,7 @@ FollowerDiscovery1(i) ==
 \* as its own l.p and sends NEWEPOCH to followers.                 
 LeaderHandleCEPOCH(i, j) ==
         \* test restrictions
-        /\ tempMaxEpoch[i] <= 2
+        /\ tempMaxEpoch[i] <= 1
         /\ Len(history[i]) <= 2
         /\ state[i] = ProspectiveLeader
         /\ msgs[j][i] /= << >>
@@ -393,7 +402,7 @@ LeaderHandleCEPOCH(i, j) ==
 \* a new leader who share the same expoch. So here I just change leaderEpoch, and use it in handling ACK-E.
 LeaderDiscovery1(i) ==
         \* test restrictions
-        /\ tempMaxEpoch[i] <= 2
+        /\ tempMaxEpoch[i] <= 1
         /\ Len(history[i]) <= 2
         /\ state[i] = ProspectiveLeader
         /\ cepochRecv[i] \in Quorums
@@ -598,7 +607,7 @@ ClientRequest(i, v) ==
                                   counter |-> currentCounter'[i],
                                   value   |-> v]
            IN /\ history'  = [history  EXCEPT ![i] = Append(history[i], newTransaction)]
-              /\ ackIndex' = [ackIndex EXCEPT ![i] = Len(history'[i])] \* necessary, to push commitIndex
+              /\ ackIndex' = [ackIndex EXCEPT ![i][i] = Len(history'[i])] \* necessary, to push commitIndex
         /\ UNCHANGED <<msgs, state, currentEpoch, leaderEpoch, leaderOracle, commitIndex, cluster, cepochRecv,
                        ackeRecv, ackldRecv, sendCounter, initialHistory, committedIndex, tempVars, cepochSent, recoveryVars, proposalMsgsLog>>
 
@@ -971,7 +980,7 @@ Liveness property
 *) 
 =============================================================================
 \* Modification History
-\* Last modified Mon Apr 26 21:48:25 CST 2021 by Dell
+\* Last modified Tue Apr 27 21:01:24 CST 2021 by Dell
 \* Created Sat Dec 05 13:32:08 CST 2020 by Dell
 
 

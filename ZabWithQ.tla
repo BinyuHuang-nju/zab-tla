@@ -123,11 +123,13 @@ VARIABLE recoveryMaxEpoch
 
 VARIABLE recoveryMEOracle
 
+VARIABLE recoverySent
+
 \* Persistent state of a server: history, currentEpoch, leaderEpoch
 serverVars == <<state, currentEpoch, leaderEpoch, leaderOracle, history, commitIndex>>
 leaderVars == <<cluster, cepochRecv, ackeRecv, ackldRecv, ackIndex, currentCounter, sendCounter, initialHistory, committedIndex>>
 tempVars   == <<tempMaxEpoch, tempMaxLastEpoch, tempInitialHistory>>
-recoveryVars == <<recoveryRespRecv, recoveryMaxEpoch, recoveryMEOracle>>
+recoveryVars == <<recoveryRespRecv, recoveryMaxEpoch, recoveryMEOracle, recoverySent>>
 
 vars == <<serverVars, msgs, leaderVars, tempVars, recoveryVars, cepochSent, proposalMsgsLog>>
 ----------------------------------------------------------------------------
@@ -186,6 +188,7 @@ Init == /\ state              = [s \in Server |-> Follower]
         /\ recoveryRespRecv   = [s \in Server |-> {}]
         /\ recoveryMaxEpoch   = [s \in Server |-> 0]
         /\ recoveryMEOracle   = [s \in Server |-> NullPoint]
+        /\ recoverySent       = [s \in Server |-> FALSE]
         /\ proposalMsgsLog    = {}
 
 ----------------------------------------------------------------------------     
@@ -216,7 +219,6 @@ Election(i, Q) ==
         /\ msgs'               = [ii \in Server |-> [ij \in Server |-> 
                                                      IF ii \in Q /\ ij \in Q THEN << >>
                                                                              ELSE msgs[ii][ij]]]
-        \*/\ UNCHANGED <<currentEpoch, history, commitIndex, currentCounter, sendCounter, proposalMsgsLog>>
 
 \* The action should be triggered once at the beginning.
 \* Because we abstract the part of leader election, we can use global variables in this action.
@@ -254,23 +256,27 @@ FollowerTimeout(i) ==
 
 ----------------------------------------------------------------------------
 \* A server halts and restarts.
+\* Like Recovery protocol in View-stamped Replication, we let a server join in cluster
+\* by broadcast recovery and wait until receiving responses from a quorum of servers.
 Restart(i) ==
         /\ state'        = [state        EXCEPT ![i] = Follower]
         /\ leaderOracle' = [leaderOracle EXCEPT ![i] = NullPoint]
         /\ commitIndex'  = [commitIndex  EXCEPT ![i] = 0]   
         /\ cepochSent'   = [cepochSent   EXCEPT ![i] = FALSE]
         /\ msgs'         = [ii \in Server |-> [ij \in Server |-> IF ij = i THEN << >>
-                                                                           ELSE msgs[ii][ij]]]       
-        /\ UNCHANGED <<currentEpoch, leaderEpoch, history, leaderVars, tempVars, recoveryVars, proposalMsgsLog>>
+                                                                           ELSE msgs[ii][ij]]]  
+        /\ recoverySent' = [recoverySent EXCEPT ![i] = FALSE]     
+        /\ UNCHANGED <<currentEpoch, leaderEpoch, history, leaderVars, tempVars, 
+                       recoveryRespRecv, recoveryMaxEpoch, recoveryMEOracle, proposalMsgsLog>>
 
-\* Like Recovery protocol in View-stamped Replication, we let a server join in cluster
-\* by broadcast recovery and wait until receiving responses from a quorum of servers.
 RecoveryAfterRestart(i) ==
         /\ state[i] = Follower
         /\ leaderOracle[i] = NullPoint
+        /\ \lnot recoverySent[i]
         /\ recoveryRespRecv' = [recoveryRespRecv EXCEPT ![i] = {}]
         /\ recoveryMaxEpoch' = [recoveryMaxEpoch EXCEPT ![i] = currentEpoch[i]]
         /\ recoveryMEOracle' = [recoveryMEOracle EXCEPT ![i] = NullPoint]
+        /\ recoverySent'     = [recoverySent     EXCEPT ![i] = TRUE]
         /\ BroadcastToAll(i, [mtype |-> RECOVERYREQUEST])
         /\ UNCHANGED <<serverVars, leaderVars, tempVars, cepochSent, proposalMsgsLog>>
 
@@ -296,7 +302,7 @@ HandleRecoveryResponse(i, j) ==
         /\ Discard(j, i)
         /\ recoveryRespRecv' = [recoveryRespRecv EXCEPT ![i] = IF j \in recoveryRespRecv[i] THEN recoveryRespRecv[i]
                                                                                             ELSE recoveryRespRecv[i] \union {j}]
-        /\ UNCHANGED <<serverVars, leaderVars, tempVars, cepochSent, proposalMsgsLog>>
+        /\ UNCHANGED <<serverVars, leaderVars, tempVars, cepochSent, recoverySent, proposalMsgsLog>>
 
 FindCluster(i) == 
         /\ state[i] = Follower
@@ -304,14 +310,18 @@ FindCluster(i) ==
         /\ recoveryRespRecv[i] \in Quorums
         /\ LET infoOk == /\ recoveryMEOracle[i] /= i
                          /\ recoveryMEOracle[i] /= NullPoint
+                         /\ currentEpoch[i] <= recoveryMaxEpoch[i]
            IN \/ /\ ~infoOk
+                 /\ recoverySent' = [recoverySent EXCEPT ![i] = FALSE]
                  /\ UNCHANGED <<currentEpoch, leaderOracle, msgs>>
               \/ /\ infoOk
                  /\ currentEpoch' = [currentEpoch EXCEPT ![i] = recoveryMaxEpoch[i]]
                  /\ leaderOracle' = [leaderOracle EXCEPT ![i] = recoveryMEOracle[i]]
                  /\ Send(i, recoveryMEOracle[i], [mtype |-> CEPOCH,
                                                   mepoch|-> recoveryMaxEpoch[i]])
-        /\ UNCHANGED <<state, leaderEpoch, history, commitIndex, leaderVars, tempVars, recoveryVars, cepochSent, proposalMsgsLog>>
+                 /\ UNCHANGED recoverySent
+        /\ UNCHANGED <<state, leaderEpoch, history, commitIndex, leaderVars, tempVars, 
+                       recoveryRespRecv, recoveryMaxEpoch, recoveryMEOracle, cepochSent, proposalMsgsLog>>
         
 ----------------------------------------------------------------------------
 \* In phase f11, follower sends f.p to pleader via CEPOCH.
@@ -535,8 +545,8 @@ ClientRequest(i, v) ==
         /\ LET newTransaction == [epoch   |-> currentEpoch[i],
                                   counter |-> currentCounter'[i],
                                   value   |-> v]
-           IN /\ history'  = [history  EXCEPT ![i] = Append(history[i], newTransaction)]
-              /\ ackIndex' = [ackIndex EXCEPT ![i] = Len(history'[i])] \* necessary, to push commitIndex
+           IN /\ history'  = [history  EXCEPT ![i]    = Append(history[i], newTransaction)]
+              /\ ackIndex' = [ackIndex EXCEPT ![i][i] = Len(history'[i])] \* necessary, to push commitIndex
         /\ UNCHANGED <<msgs, state, currentEpoch, leaderEpoch, leaderOracle, commitIndex, cluster, cepochRecv,
                        ackeRecv, ackldRecv, sendCounter, initialHistory, committedIndex, tempVars, cepochSent, recoveryVars, proposalMsgsLog>>
 
@@ -885,7 +895,7 @@ Liveness property
 *) 
 =============================================================================
 \* Modification History
-\* Last modified Mon Apr 26 21:48:14 CST 2021 by Dell
+\* Last modified Tue Apr 27 20:48:06 CST 2021 by Dell
 \* Created Sat Dec 05 13:32:08 CST 2020 by Dell
 
 

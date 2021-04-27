@@ -40,6 +40,7 @@ Zab使用的是TCP信道，所以消息传递不会出现丢包、冗余、乱�
 1.	某一个节点重启(Restart)后，它会向其他节点发送RECOVERYREQUEST类型的消息(RecoveryAfterRestart)	  
 2.	其他节点接收到该消息时将本地的leaderOracle和epoch返回(HandleRecoveryRequest)  
 3.	当该节点收到多数派的回复时，选取回复中epoch最大且oracle非空的数据进行更新，我们认为此时它找到了leader，并向其发送CEPOCH请求同步(HandleRecoveryResponse,FindCluster)。  
+
 当然，它找到的集群不一定的最新的集群，在这种情况下它会因为没得到CEPOCH的回复而重新进行寻找。
 
 ### Issue 5 Line: xx, Action: LeaderHandleCEPOCH
@@ -47,6 +48,6 @@ Zab使用的是TCP信道，所以消息传递不会出现丢包、冗余、乱�
 
 ### Issue 6 Line: xx, Action: FollowerBroadcast2
 我们考虑，当一个节点从选主阶段开始就在集群中，它顺序接收来自leader的消息，那么它每次收到的COMMIT中被committed的transaction一定存在于本地的history中。但是对于后加入集群的节点，这样的性质不一定一直被满足。  
-我们考虑这样的情况，某一节点j找到leader i后，向i发送CEPOCH以加入集群，i与j正常交互，在收到ACK-LD后将i加入集群中。但在i发送NEWLEADER后，i收到某个client请求修改了history并广播一个PROPOSE类型的消息，这对j来说是屏蔽的，因为j还没有加入集群。但是在j加入集群后，j收到了该请求的COMMIT，但该committed的transaction不能在它的history中被找到。流程如下图所示。
+我们考虑这样的情况，某一节点j找到leader i后，向i发送CEPOCH以加入集群，i与j正常交互，在收到ACK-LD后将j加入集群中。但在i发送NEWLEADER后，i收到某个client请求修改了history并广播一个PROPOSE类型的消息，这对j来说是屏蔽的，因为j还没有加入集群。但是在j加入集群后，j收到了该请求的COMMIT，但该committed的transaction不能在它的history中被找到。流程如下图所示。
 ![pic recovery](picture/pic_recovery.PNG)  
-因此，我们所做出的假设是，当某一follower收到的COMMIT中的transaction是本地没有的时，对leader重发CEPOCH来寻求状态一致。即某节点在Discovery阶段，加入集群，或寻求状态一致时都会向leader发送CEPOCH。
+因此，我们所做出的假设是，当某一follower收到的COMMIT中的transaction是本地没有的时，对leader重发CEPOCH来寻求状态一致。即某节点在Discovery阶段，或想要加入集群时，或由于确实transaction而寻求状态一致时，都会向leader发送CEPOCH。
