@@ -492,7 +492,7 @@ LeaderDiscovery2Sync1(i) ==
         /\ ackIndex'       = [ackIndex       EXCEPT ![i][i] = Len(tempInitialHistory[i])]
         \* until now, phase1(Discovery) ends
         /\ Broadcast(i, [mtype           |-> NEWLEADER,
-                         mepoch          |-> currentEpoch[i],
+                         mepoch          |-> currentEpoch'[i],
                          minitialHistory |-> history'[i]])
         /\ UNCHANGED <<state, leaderEpoch, leaderOracle, commitIndex, cluster, cepochRecv,ackldRecv, 
                        currentCounter, sendCounter, committedIndex, cepochSent, tempVars, recoveryVars, proposalMsgsLog>> 
@@ -980,7 +980,7 @@ Liveness property
 *) 
 =============================================================================
 \* Modification History
-\* Last modified Wed Apr 28 12:46:54 CST 2021 by Dell
+\* Last modified Wed Apr 28 12:54:51 CST 2021 by Dell
 \* Created Sat Dec 05 13:32:08 CST 2020 by Dell
 
 
