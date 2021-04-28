@@ -7,6 +7,8 @@ We have made a formal specification for Zab using TLA+ toolbox, and we have done
 
 Due to the simplification of Zab algorithm description in the paper, some details in specification were modified and added. If you have any question, please point out.
 
+You can find this document in chinese in [doc-in-chinsese](doc-in-chinese/README.md).
+
 ## Requirements
 TLA+ toolbox version 1.7.0
 
