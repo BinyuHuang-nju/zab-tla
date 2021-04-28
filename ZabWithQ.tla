@@ -522,7 +522,6 @@ FollowerSync2(i, j) ==
         /\ msgs[j][i][1].mtype = COMMITLD
         /\ LET msg == msgs[j][i][1]
            IN \/ \* new COMMIT-LD - commit all transactions in initial history
-                 \* Regradless of Restart, it must be true because one will receive NEWLEADER before receiving COMMIT-LD
                  /\ currentEpoch[i] = msg.mepoch
                  /\ leaderOracle' = [leaderOracle EXCEPT ![i] = j] \* unnecessary
                  /\ \/ /\ Len(history[i]) = msg.mlength
@@ -533,7 +532,6 @@ FollowerSync2(i, j) ==
                                        mepoch|-> currentEpoch[i]])
                        /\ UNCHANGED commitIndex
               \/ \* > : stale COMMIT-LD - discard
-                 \* < : In our implementation, '<' does not exist due to the guarantee of Restart
                  \* < : If '<' exists, we can discard it and handle it in phase3
                  /\ currentEpoch[i] /= msg.mepoch
                  /\ Discard(j, i)
@@ -637,8 +635,10 @@ FollowerBroadcast2(i, j) ==
            IN \/ /\ currentEpoch[i] = msg.mepoch
                  /\ leaderOracle' = [leaderOracle EXCEPT ![i] = j]
                  /\ LET infoOk == /\ Len(history[i]) >= msg.mindex
-                                  /\ history[i][msg.mindex].epoch = msg.mepoch
-                                  /\ history[i][msg.mindex].counter = msg.mcounter
+                                  /\ \/ /\ msg.mindex > 0
+                                        /\ history[i][msg.mindex].epoch = msg.mepoch
+                                        /\ history[i][msg.mindex].counter = msg.mcounter
+                                     \/ msg.mindex = 0
                     IN \/ \* new COMMIT - commit transaction in history
                           /\ infoOk
                           /\ commitIndex' = [commitIndex EXCEPT ![i] = Maximum({commitIndex[i], msg.mindex})]
@@ -657,12 +657,8 @@ FollowerBroadcast2(i, j) ==
                        leaderVars, tempVars, cepochSent, recoveryVars, proposalMsgsLog>>
 
 ----------------------------------------------------------------------------
-\* There may be two ways to make sure all followers as up-to-date as the leader.
-\* way1: choose Send not Broadcast when leader is going to send PROPOSE and COMMIT.
-\* way2: When one follower receives PROPOSE or COMMIT which misses some entries between
-\*       its history and the newest entry, the follower send CEPOCH to catch pace.
-\* Here I choose way2, which I need not to rewrite PROPOSE and COMMIT, but need to
-\* modify the code when follower receives COMMIT-LD and COMMIT.
+\* When one follower receives PROPOSE or COMMIT which misses some entries between
+\* its history and the newest entry, the follower send CEPOCH to catch pace.
 
 \* In phase l33, upon receiving CEPOCH, leader l proposes back NEWEPOCH and NEWLEADER.
 LeaderHandleCEPOCHinPhase3(i, j) ==
@@ -703,13 +699,7 @@ LeaderHandleACKLDinPhase3(i, j) ==
         /\ UNCHANGED <<serverVars, cepochRecv, ackeRecv, ackldRecv, currentCounter, sendCounter, 
                        initialHistory, committedIndex, tempVars, cepochSent, recoveryVars, proposalMsgsLog>>
 
-\* To ensure any follower can find the correct leader, the follower should modify leaderOracle
-\* anytime when it receive messages from leader, because a server may restart and join the cluster Q
-\* halfway and receive the first message which is not NEWEPOCH. But we can delete this restriction
-\* when we ensure Broadcast function acts on the followers in the cluster not any servers in 
-\* the whole system, then one server must has correct leaderOracle before it receives messages.
-
-\* Let me suppose two conditions when one follower sends CEPOCH to leader:
+\* Let me suppose three conditions when one follower sends CEPOCH to leader:
 \* 0. Usually, the server becomes follower in election and sends CEPOCH before receiving NEWEPOCH.
 \* 1. The follower wants to join the cluster halfway and get the newest history.
 \* 2. The follower has received COMMIT, but there exists the gap between its own history and mindex,
@@ -803,9 +793,7 @@ Next ==
 Spec == Init /\ [][Next]_vars
 
 ----------------------------------------------------------------------------
-\* Define some variants, safety propoties, and liveness propoties of Zab consensus algorithm.
-
-\* Safety properties
+\* Safety properties of Zab consensus algorithm
 
 \* There is most one leader/prospective leader in a certain epoch.
 Leadership == \A i, j \in Server:
@@ -813,9 +801,10 @@ Leadership == \A i, j \in Server:
                     /\ state[j] = Leader \/ state[j] = ProspectiveLeader
                     /\ currentEpoch[i] = currentEpoch[j]
                     => i = j
-\* Here, delivering means deliver some transaction from history to replica. We can assume deliverIndex = commitIndex.
+                    
+\* Here, delivering means deliver some transaction from history to replica. We assume deliverIndex = commitIndex.
 \* So we can assume the set of delivered transactions is the prefix of history with index from 1 to commitIndex.
-\* We can express a transaction by two-tuple<epoch,counter> according to its uniqueness.
+\* And we can express a transaction by two-tuple <epoch,counter> according to its uniqueness.
 equal(entry1, entry2) == /\ entry1.epoch   = entry2.epoch
                          /\ entry1.counter = entry2.counter
 
@@ -855,9 +844,7 @@ TotalOrder == \A i, j \in Server: commitIndex[i] >= 2 /\ commitIndex[j] >= 2
                     LET logOk == \E index \in 1..commitIndex[j]: equal(history[i][indexi2], history[j][index])
                     IN \/ ~logOk
                        \/ /\ logOk 
-                          /\ \* LET indexj2 == CHOOSE idx \in 1..commitIndex[j]: equal(history[i][indexi2], history[j][idx])
-                             \* IN \E indexj1 \in 1..(indexj2 - 1): equal(history[i][indexi1], history[j][indexj1])
-                             \E indexj2 \in 1..commitIndex[j]: 
+                          /\ \E indexj2 \in 1..commitIndex[j]: 
                                               /\ equal(history[i][indexi2], history[j][indexj2])
                                               /\ \E indexj1 \in 1..(indexj2 - 1): equal(history[i][indexi1], history[j][indexj1])
         
@@ -876,9 +863,7 @@ LocalPrimaryOrder == LET mset(i, e) == {msg \in proposalMsgsLog: msg.msource = i
                                        tscNext == IF precede(tsc1, tsc2) THEN tsc2 ELSE tsc1
                                    IN \A j \in Server: /\ commitIndex[j] >= 2
                                                        /\ \E index \in 1..commitIndex[j]: equal(history[j][index], tscNext)
-                                    => \* LET index2 == CHOOSE idx \in 1..commitIndex[j]: equal(history[j][idx], tscNext)
-                                       \* IN /\ index2 > 1
-                                       \*    /\ \E index1 \in 1..(index2 - 1): equal(history[j][index1], tscPre)
+                                    => 
                                       \E index2 \in 1..commitIndex[j]: 
                                             /\ equal(history[j][index2], tscNext)
                                             /\ index2 > 1
@@ -898,18 +883,10 @@ PrimaryIntegrity == \A i, j \in Server: /\ state[i] = Leader
                         => \A index \in 1..commitIndex[j]: \/ history[j][index].epoch >= currentEpoch[i]
                                                            \/ /\ history[j][index].epoch < currentEpoch[i]
                                                               /\ \E idx \in 1..commitIndex[i]: equal(history[i][idx], history[j][index])
-(*
-Liveness property
 
- Suppose that:
-    -A quorum Q of followers are up.
-    -The followers in Q elect the same process l and l is up.
-    -Messages between a follower in Q and l are received in a timely fashion.
- If l proposes a transaction a, then a is eventually committed.
-*) 
 =============================================================================
 \* Modification History
-\* Last modified Wed Apr 28 15:16:08 CST 2021 by Dell
+\* Last modified Wed Apr 28 22:02:18 CST 2021 by Dell
 \* Created Sat Dec 05 13:32:08 CST 2020 by Dell
 
 
