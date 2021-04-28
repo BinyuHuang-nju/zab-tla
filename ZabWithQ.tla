@@ -685,12 +685,13 @@ LeaderHandleACKLDinPhase3(i, j) ==
         /\ msgs[j][i][1].mtype = ACKLD
         /\ LET msg == msgs[j][i][1]
                aimCommitIndex == Minimum({commitIndex[i], Len(msg.mhistory)})
+               aimCommitCounter == IF aimCommitIndex = 0 THEN 0 ELSE history[aimCommitIndex].counter
            IN \/ /\ currentEpoch[i] = msg.mepoch
                  /\ ackIndex' = [ackIndex EXCEPT ![i][j] = Len(msg.mhistory)]
                  /\ Reply(i, j, [mtype    |-> COMMIT,
                                  mepoch   |-> currentEpoch[i],
                                  mindex   |-> aimCommitIndex,
-                                 mcounter |-> history[aimCommitIndex].counter])
+                                 mcounter |-> aimCommitCounter])
               \/ /\ currentEpoch[i] /= msg.mepoch
                  /\ Discard(j, i)
                  /\ UNCHANGED ackIndex
@@ -895,7 +896,7 @@ Liveness property
 *) 
 =============================================================================
 \* Modification History
-\* Last modified Wed Apr 28 12:55:16 CST 2021 by Dell
+\* Last modified Wed Apr 28 13:04:13 CST 2021 by Dell
 \* Created Sat Dec 05 13:32:08 CST 2020 by Dell
 
 
