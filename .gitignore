@@ -33,5 +33,5 @@
 *.out
 *.app
 
-
+# Used in this project
 *.toolbox

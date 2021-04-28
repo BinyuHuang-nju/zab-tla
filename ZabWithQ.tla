@@ -535,7 +535,7 @@ FollowerSync2(i, j) ==
                  /\ currentEpoch[i] /= msg.mepoch
                  /\ Discard(j, i)
                  /\ UNCHANGED <<commitIndex, leaderOracle>>
-        /\ UNCHANGED <<state, currentEpoch, leaderOracle, history, leaderVars, tempVars, cepochSent, recoveryVars, proposalMsgsLog>>
+        /\ UNCHANGED <<state, currentEpoch, leaderEpoch, history, leaderVars, tempVars, cepochSent, recoveryVars, proposalMsgsLog>>
 
 ----------------------------------------------------------------------------
 \* In phase l31, leader receives client request and broadcasts PROPOSE.
@@ -895,7 +895,7 @@ Liveness property
 *) 
 =============================================================================
 \* Modification History
-\* Last modified Tue Apr 27 20:48:06 CST 2021 by Dell
+\* Last modified Wed Apr 28 12:47:09 CST 2021 by Dell
 \* Created Sat Dec 05 13:32:08 CST 2020 by Dell
 
 
