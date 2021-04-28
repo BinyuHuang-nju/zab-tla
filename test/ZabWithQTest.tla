@@ -220,7 +220,7 @@ Election(i, Q) ==
         /\ cepochSent'         = [s \in Server |-> IF s \in Q THEN FALSE
                                                               ELSE cepochSent[s]]
         /\ msgs'               = [ii \in Server |-> [ij \in Server |-> 
-                                                     IF ii \in Q /\ ij \in Q THEN << >>
+                                                     IF ii \in Q \/ ij \in Q THEN << >>
                                                                              ELSE msgs[ii][ij]]]
         \*/\ UNCHANGED <<currentEpoch, history, commitIndex, currentCounter, sendCounter, proposalMsgsLog>>
 
@@ -230,7 +230,7 @@ InitialElection(i, Q) ==
         \* test restrictions
         /\ currentEpoch[i] <= 2
         /\ Len(history[i]) <= 2
-        /\ \A s \in Server: state[i] = Follower /\ leaderOracle[i] = NullPoint
+        /\ \A s \in Server: state[s] = Follower /\ leaderOracle[s] = NullPoint
         /\ Election(i, Q)
         /\ UNCHANGED <<currentEpoch, history, commitIndex, currentCounter, sendCounter, recoveryVars, proposalMsgsLog>>
 
@@ -273,7 +273,7 @@ FollowerTimeout(i) ==
 \* by broadcast recovery and wait until receiving responses from a quorum of servers.
 Restart(i) ==
         \* test restrictions
-        /\ currentEpoch[i] <= -1
+        /\ currentEpoch[i] <= 2
         /\ Len(history[i]) <= 2
         /\ state'        = [state        EXCEPT ![i] = Follower]
         /\ leaderOracle' = [leaderOracle EXCEPT ![i] = NullPoint]
@@ -287,7 +287,7 @@ Restart(i) ==
 
 RecoveryAfterRestart(i) ==
         \* test restrictions
-        /\ currentEpoch[i] <= -1
+        /\ currentEpoch[i] <= 2
         /\ Len(history[i]) <= 2
         /\ state[i] = Follower
         /\ leaderOracle[i] = NullPoint
@@ -433,7 +433,10 @@ FollowerDiscovery2(i, j) ==
                                  mhf        |-> history[i]])
               \/ /\ currentEpoch[i] = msg.mepoch
                  /\ \/ /\ leaderOracle[i] = j
-                       /\ Discard(j, i)
+                       /\ Reply(i, j, [mtype      |-> ACKE,
+                                       mepoch     |-> msg.mepoch,
+                                       mlastEpoch |-> leaderEpoch[i],
+                                       mhf        |-> history[i]])
                        /\ UNCHANGED <<currentEpoch, leaderOracle>>
                     \/ \* It may happen when a leader do not update new epoch to all followers in Q, and a new election begins
                        /\ leaderOracle[i] # j
@@ -696,7 +699,7 @@ LeaderBroadcast2(i) ==
            IN /\ Broadcast(i, [mtype    |-> COMMIT,
                                mepoch   |-> currentEpoch[i],
                                mindex   |-> newCommittedIndex,
-                               mcounter |-> history[newCommittedIndex].counter])
+                               mcounter |-> history[i][newCommittedIndex].counter])
               /\ committedIndex' = [committedIndex EXCEPT ![i] = committedIndex[i] + 1]
         /\ UNCHANGED <<serverVars, cluster, cepochRecv, ackeRecv, ackldRecv, ackIndex, currentCounter, 
                        sendCounter, initialHistory, tempVars, cepochSent, recoveryVars, proposalMsgsLog>>
@@ -713,8 +716,10 @@ FollowerBroadcast2(i, j) ==
            IN \/ /\ currentEpoch[i] = msg.mepoch
                  /\ leaderOracle' = [leaderOracle EXCEPT ![i] = j]
                  /\ LET infoOk == /\ Len(history[i]) >= msg.mindex
-                                  /\ history[i][msg.mindex].epoch = msg.mepoch
-                                  /\ history[i][msg.mindex].counter = msg.mcounter
+                                  /\ \/ /\ msg.mindex > 0
+                                        /\ history[i][msg.mindex].epoch = msg.mepoch
+                                        /\ history[i][msg.mindex].counter = msg.mcounter
+                                     \/ msg.mindex = 0
                     IN \/ \* new COMMIT - commit transaction in history
                           /\ infoOk
                           /\ commitIndex' = [commitIndex EXCEPT ![i] = Maximum({commitIndex[i], msg.mindex})]
@@ -770,7 +775,7 @@ LeaderHandleACKLDinPhase3(i, j) ==
         /\ msgs[j][i][1].mtype = ACKLD
         /\ LET msg == msgs[j][i][1]
                aimCommitIndex == Minimum({commitIndex[i], Len(msg.mhistory)})
-               aimCommitCounter == IF aimCommitIndex = 0 THEN 0 ELSE history[aimCommitIndex].counter
+               aimCommitCounter == IF aimCommitIndex = 0 THEN 0 ELSE history[i][aimCommitIndex].counter
            IN \/ /\ currentEpoch[i] = msg.mepoch
                  /\ ackIndex' = [ackIndex EXCEPT ![i][j] = Len(msg.mhistory)]
                  /\ Reply(i, j, [mtype    |-> COMMIT,
@@ -806,7 +811,7 @@ BecomeFollower(i) ==
                                   /\ msgs[j][i][1].mtype /= RECOVERYREQUEST
                                   /\ msgs[j][i][1].mtype /= RECOVERYRESPONSE
                                   /\ LET msg == msgs[j][i][1]
-                                     IN /\ currentEpoch[i] < msg.mepoch
+                                     IN /\ Maximum({currentEpoch[i],leaderEpoch[i]}) < msg.mepoch
                                         /\ \/ msg.mtype = NEWEPOCH
                                            \/ msg.mtype = NEWLEADER
                                            \/ msg.mtype = COMMITLD
@@ -833,14 +838,24 @@ DiscardStaleMessage(i) ==
                                               \/ msg.mtype = ACKE
                                               \/ msg.mtype = ACKLD
                                               \/ msg.mtype = ACK
-                                        \/ /\ state[i] = Leader 
+                                        \/ /\ state[i] /= Follower
                                            /\ msg.mtype /= CEPOCH
-                                           /\ \/ msg.mepoch <= currentEpoch[i] 
-                                              \/ msg.mtype = ACKE \* response of NEWEPOCH
-                                        \/ /\ state[i] = ProspectiveLeader
-                                           /\ msg.mtype /= CEPOCH
-                                           /\ \/ msg.mepoch <= currentEpoch[i]
-                                              \/ msg.mtype = ACK
+                                           /\ \/ /\ state[i] = ProspectiveLeader
+                                                 /\ \/ msg.mtype = ACK
+                                                    \/ /\ msg.mepoch <= Maximum({currentEpoch[i],leaderEpoch[i]})
+                                                       /\ \/ msg.mtype = NEWEPOCH
+                                                          \/ msg.mtype = NEWLEADER
+                                                          \/ msg.mtype = COMMITLD
+                                                          \/ msg.mtype = PROPOSE
+                                                          \/ msg.mtype = COMMIT
+                                              \/ /\ state[i] = Leader
+                                                 /\ \/ msg.mtype = ACKE
+                                                    \/ /\ msg.mepoch <= currentEpoch[i]
+                                                       /\ \/ msg.mtype = NEWEPOCH
+                                                          \/ msg.mtype = NEWLEADER
+                                                          \/ msg.mtype = COMMITLD
+                                                          \/ msg.mtype = PROPOSE
+                                                          \/ msg.mtype = COMMIT
                                   /\ Discard(j ,i)
         /\ UNCHANGED <<serverVars, leaderVars, tempVars, cepochSent, recoveryVars, proposalMsgsLog>>
 
@@ -981,7 +996,7 @@ Liveness property
 *) 
 =============================================================================
 \* Modification History
-\* Last modified Wed Apr 28 13:03:58 CST 2021 by Dell
+\* Last modified Wed Apr 28 16:41:28 CST 2021 by Dell
 \* Created Sat Dec 05 13:32:08 CST 2020 by Dell
 
 
