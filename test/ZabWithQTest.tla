@@ -902,8 +902,12 @@ Spec == Init /\ [][Next]_vars
 
 \* There is most one leader/prospective leader in a certain epoch.
 Leadership == \A i, j \in Server:
-                    /\ state[i] = Leader \/ state[i] = ProspectiveLeader
-                    /\ state[j] = Leader \/ state[j] = ProspectiveLeader
+                    /\ \/ state[i] = Leader 
+                       \/ /\ state[i] = ProspectiveLeader
+                          /\ NullPoint \in ackeRecv[i] \* prospective leader determines its epoch after broadcasting NEWLEADER
+                    /\ \/ state[j] = Leader 
+                       \/ /\ state[j] = ProspectiveLeader
+                          /\ NullPoint \in ackeRecv[j]
                     /\ currentEpoch[i] = currentEpoch[j]
                     => i = j
 \* Here, delivering means deliver some transaction from history to replica. We can assume deliverIndex = commitIndex.
@@ -996,7 +1000,7 @@ Liveness property
 *) 
 =============================================================================
 \* Modification History
-\* Last modified Wed Apr 28 16:41:28 CST 2021 by Dell
+\* Last modified Thu Apr 29 17:16:53 CST 2021 by Dell
 \* Created Sat Dec 05 13:32:08 CST 2020 by Dell
 
 
