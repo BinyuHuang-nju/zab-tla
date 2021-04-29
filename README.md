@@ -13,7 +13,8 @@ You can find this document in chinese in [doc-in-chinsese](doc-in-chinese/README
 TLA+ toolbox version 1.7.0
 
 ## Run
-Create specification and run models in the usual way
+Create specification and run models in the usual way.  
+For example, if you want to check model with 3 servers, 2 rounds and 2 delivered transactions, you can create spec [test/ZabTest.tla](test/ZabWithQTest.tla) and set *Server* symmetrical model value {s1,s2,s3}.
 
 ## Notes
 

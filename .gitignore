@@ -35,3 +35,6 @@
 
 # Used in this project
 *.toolbox
+ZabWithoutQ.tla
+ZabWithoutQ.pdf
+test/result/
