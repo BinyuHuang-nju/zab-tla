@@ -49,7 +49,7 @@ Zab使用的是TCP信道，所以消息传递不会出现丢包、冗余、乱�
 ### Issue 5 Line: 340, Action: LeaderHandleCEPOCH
 论文Step l.3.3和Stepl.3.4仅描述了leader接收到CEPOCH和ACK-LD时的处理，而没有描述prospective leader接收到来自不属于Q的节点的CEPOCH和ACK-LD的处理，我们考虑了这种情况下的处理方式。当prospective leader接收到来自节点i的CEPOCH，若i不属于Q，则先将i加入Q(leader是接收到ACK-LD时将i加入到Q)。随后prospective leader会判断自己是否已经广播过NEWEPOCH和NEWLEADER，来确保新加入Q的成员不会错失消息。这里我们不需要判断prospective leader是否广播过COMMIT-LD，因为广播了COMMIT-LD后状态会转为leader。
 
-### Issue 6 Line: 630, Action: FollowerBroadcast2
+### Issue 6 Line: 636, Action: FollowerBroadcast2
 我们考虑，当一个节点从选主阶段开始就在集群中，它顺序接收来自leader的消息，那么它每次收到的COMMIT中被committed的transaction一定存在于本地的history中。但是对于后加入集群的节点，这样的性质不一定一直被满足。  
 我们考虑这样的情况，某一节点j找到leader i后，向i发送CEPOCH以加入集群，i与j正常交互，在收到ACK-LD后将j加入集群中。但在i发送NEWLEADER后，i收到某个client请求修改了history并广播一个PROPOSE类型的消息，这对j来说是屏蔽的，因为j还没有加入集群。但是在j加入集群后，j收到了该请求的COMMIT，但该committed的transaction不能在它的history中被找到。流程如下图所示。
 ![pic recovery](picture/pic_recovery.PNG)  

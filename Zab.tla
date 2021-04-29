@@ -385,32 +385,32 @@ FollowerDiscovery2(i, j) ==
         /\ LET msg == msgs[j][i][1]
            IN \/ \* new NEWEPOCH - accept and reply
                  /\ currentEpoch[i] < msg.mepoch 
-                 /\ currentEpoch' = [currentEpoch EXCEPT ![i] = msg.mepoch]
-                 /\ leaderOracle' = [leaderOracle EXCEPT ![i] = j]
-                 /\ Reply(i, j, [mtype      |-> ACKE,
-                                 mepoch     |-> msg.mepoch,
-                                 mlastEpoch |-> leaderEpoch[i],
-                                 mhf        |-> history[i]])
+                 /\ \/ /\ leaderOracle[i] = j
+                       /\ currentEpoch' = [currentEpoch EXCEPT ![i] = msg.mepoch]
+                       /\ Reply(i, j, [mtype      |-> ACKE,
+                                       mepoch     |-> msg.mepoch,
+                                       mlastEpoch |-> leaderEpoch[i],
+                                       mhf        |-> history[i]])
+                    \/ /\ leaderOracle[i] /= j
+                       /\ Discard(j ,i)
+                       /\ UNCHANGED currentEpoch
               \/ /\ currentEpoch[i] = msg.mepoch
                  /\ \/ /\ leaderOracle[i] = j
                        /\ Reply(i, j, [mtype      |-> ACKE,
                                        mepoch     |-> msg.mepoch,
                                        mlastEpoch |-> leaderEpoch[i],
                                        mhf        |-> history[i]])
-                       /\ UNCHANGED <<currentEpoch, leaderOracle>>
+                       /\ UNCHANGED currentEpoch
                     \/ \* It may happen when a leader do not update new epoch to all followers in Q, and a new election begins
-                       /\ leaderOracle[i] # j
-                       /\ leaderOracle' = [leaderOracle EXCEPT ![i] = j]
-                       /\ Reply(i, j, [mtype      |-> ACKE,
-                                       mepoch     |-> msg.mepoch,
-                                       mlastEpoch |-> leaderEpoch[i],
-                                       mhf        |-> history[i]])
+                       /\ leaderOracle[i] /= j
+                       /\ Discard(j, i)
                        /\ UNCHANGED currentEpoch
               \/ \* stale NEWEPOCH - diacard
                  /\ currentEpoch[i] > msg.mepoch
                  /\ Discard(j, i)
-                 /\ UNCHANGED <<currentEpoch, leaderOracle>>
-        /\ UNCHANGED<<state, leaderEpoch, history, leaderVars, commitIndex, cepochSent, tempVars, recoveryVars, proposalMsgsLog>>
+                 /\ UNCHANGED currentEpoch
+        /\ UNCHANGED<<state, leaderEpoch, leaderOracle, history, leaderVars, 
+                      commitIndex, cepochSent, tempVars, recoveryVars, proposalMsgsLog>>
 
 \* In phase l12, pleader receives ACKE from a quorum, 
 \* and select the history of one most up-to-date follower to be the initial history.          
@@ -467,20 +467,21 @@ FollowerSync1(i, j) ==
         /\ msgs[j][i] /= << >>
         /\ msgs[j][i][1].mtype = NEWLEADER
         /\ LET msg == msgs[j][i][1]
+               replyOk == /\ currentEpoch[i] <= msg.mepoch
+                          /\ leaderOracle[i] = j
            IN \/ \* new NEWLEADER - accept and reply
-                 /\ currentEpoch[i] <= msg.mepoch
+                 /\ replyOk
                  /\ currentEpoch' = [currentEpoch EXCEPT ![i] = msg.mepoch]
                  /\ leaderEpoch'  = [leaderEpoch  EXCEPT ![i] = msg.mepoch]
-                 /\ leaderOracle' = [leaderOracle EXCEPT ![i] = j]
                  /\ history'      = [history      EXCEPT ![i] = msg.minitialHistory]
                  /\ Reply(i, j, [mtype    |-> ACKLD,
                                  mepoch   |-> msg.mepoch,
                                  mhistory |-> msg.minitialHistory])
               \/ \* stale NEWLEADER - discard
-                 /\ currentEpoch[i] > msg.mepoch
+                 /\ ~replyOk
                  /\ Discard(j, i)
-                 /\ UNCHANGED <<currentEpoch, leaderEpoch, leaderOracle, history>>
-        /\ UNCHANGED <<state, commitIndex, leaderVars, tempVars, cepochSent, recoveryVars, proposalMsgsLog>>
+                 /\ UNCHANGED <<currentEpoch, leaderEpoch, history>>
+        /\ UNCHANGED <<state, commitIndex, leaderOracle, leaderVars, tempVars, cepochSent, recoveryVars, proposalMsgsLog>>
                  
 \* In phase l22, pleader receives ACK-LD from a quorum of followers, and sends COMMIT-LD to followers.
 LeaderHandleACKLD(i, j) ==
@@ -521,9 +522,11 @@ FollowerSync2(i, j) ==
         /\ msgs[j][i] /= << >>
         /\ msgs[j][i][1].mtype = COMMITLD
         /\ LET msg == msgs[j][i][1]
+               replyOk == /\ currentEpoch[i] = msg.mepoch
+                          /\ leaderOracle[i] = j
            IN \/ \* new COMMIT-LD - commit all transactions in initial history
-                 /\ currentEpoch[i] = msg.mepoch
-                 /\ leaderOracle' = [leaderOracle EXCEPT ![i] = j] \* unnecessary
+                 \* Regradless of Restart, it must be true because one will receive NEWLEADER before receiving COMMIT-LD
+                 /\ replyOk
                  /\ \/ /\ Len(history[i]) = msg.mlength
                        /\ commitIndex'  = [commitIndex EXCEPT ![i] = Len(history[i])]
                        /\ Discard(j, i)
@@ -532,11 +535,12 @@ FollowerSync2(i, j) ==
                                        mepoch|-> currentEpoch[i]])
                        /\ UNCHANGED commitIndex
               \/ \* > : stale COMMIT-LD - discard
-                 \* < : If '<' exists, we can discard it and handle it in phase3
-                 /\ currentEpoch[i] /= msg.mepoch
+                 \* < : In our implementation, '<' does not exist due to the guarantee of Restart
+                 /\ ~replyOk
                  /\ Discard(j, i)
-                 /\ UNCHANGED <<commitIndex, leaderOracle>>
-        /\ UNCHANGED <<state, currentEpoch, leaderEpoch, history, leaderVars, tempVars, cepochSent, recoveryVars, proposalMsgsLog>>
+                 /\ UNCHANGED commitIndex
+        /\ UNCHANGED <<state, currentEpoch, leaderEpoch, leaderOracle, history, 
+                       leaderVars, tempVars, cepochSent, recoveryVars, proposalMsgsLog>>
 
 ----------------------------------------------------------------------------
 \* In phase l31, leader receives client request and broadcasts PROPOSE.
@@ -572,19 +576,21 @@ FollowerBroadcast1(i, j) ==
         /\ msgs[j][i] /= << >>
         /\ msgs[j][i][1].mtype = PROPOSE
         /\ LET msg == msgs[j][i][1]
+               replyOk == /\ currentEpoch[i] = msg.mepoch
+                          /\ leaderOracle[i] = j
            IN \/ \* It should be that \/ msg.mproposal.counter = 1 
                  \*                   \/ msg.mrpoposal.counter = history[Len(history)].counter + 1
-                 /\ currentEpoch[i] = msg.mepoch
-                 /\ history'      = [history      EXCEPT ![i] = Append(history[i], msg.mproposal)]
-                 /\ leaderOracle' = [leaderOracle EXCEPT ![i] = j]
+                 /\ replyOk
+                 /\ history' = [history EXCEPT ![i] = Append(history[i], msg.mproposal)]
                  /\ Reply(i, j, [mtype  |-> ACK,
                                  mepoch |-> currentEpoch[i],
                                  mindex |-> Len(history'[i])])
               \/ \* If happens, /= must be >, namely a stale leader sends it.
-                 /\ currentEpoch[i] /= msg.mepoch
+                 /\ ~replyOk
                  /\ Discard(j, i)
-                 /\ UNCHANGED <<history, leaderOracle>>
-        /\ UNCHANGED <<state, currentEpoch, leaderEpoch, commitIndex, leaderVars, tempVars, cepochSent, recoveryVars, proposalMsgsLog>>
+                 /\ UNCHANGED history
+        /\ UNCHANGED <<state, currentEpoch, leaderEpoch, leaderOracle, commitIndex, 
+                       leaderVars, tempVars, cepochSent, recoveryVars, proposalMsgsLog>>
 
 \* In phase l32, leader receives ack from a quorum of followers to a certain proposal,
 \* and commits the proposal.
@@ -632,8 +638,9 @@ FollowerBroadcast2(i, j) ==
         /\ msgs[j][i] /= << >>
         /\ msgs[j][i][1].mtype = COMMIT
         /\ LET msg == msgs[j][i][1]
-           IN \/ /\ currentEpoch[i] = msg.mepoch
-                 /\ leaderOracle' = [leaderOracle EXCEPT ![i] = j]
+               replyOk == /\ currentEpoch[i] = msg.mepoch
+                          /\ leaderOracle[i] = j
+           IN \/ /\ replyOk
                  /\ LET infoOk == /\ Len(history[i]) >= msg.mindex
                                   /\ \/ /\ msg.mindex > 0
                                         /\ history[i][msg.mindex].epoch = msg.mepoch
@@ -650,10 +657,10 @@ FollowerBroadcast2(i, j) ==
                                           mepoch|-> currentEpoch[i]])
                           /\ UNCHANGED commitIndex
               \/ \* stale COMMIT - discard
-                 /\ currentEpoch[i] /= msg.mepoch
+                 /\ ~replyOk
                  /\ Discard(j, i)
-                 /\ UNCHANGED <<commitIndex, leaderOracle>>
-        /\ UNCHANGED <<state, currentEpoch, leaderEpoch, history, 
+                 /\ UNCHANGED commitIndex
+        /\ UNCHANGED <<state, currentEpoch, leaderEpoch, history, leaderOracle, 
                        leaderVars, tempVars, cepochSent, recoveryVars, proposalMsgsLog>>
 
 ----------------------------------------------------------------------------
@@ -711,7 +718,8 @@ BecomeFollower(i) ==
                                   /\ msgs[j][i][1].mtype /= RECOVERYREQUEST
                                   /\ msgs[j][i][1].mtype /= RECOVERYRESPONSE
                                   /\ LET msg == msgs[j][i][1]
-                                     IN /\ Maximum({currentEpoch[i],leaderEpoch[i]}) < msg.mepoch
+                                     IN /\ NullPoint \in cepochRecv[i]
+                                        /\ Maximum({currentEpoch[i],leaderEpoch[i]}) < msg.mepoch
                                         /\ \/ msg.mtype = NEWEPOCH
                                            \/ msg.mtype = NEWLEADER
                                            \/ msg.mtype = COMMITLD
@@ -890,7 +898,7 @@ PrimaryIntegrity == \A i, j \in Server: /\ state[i] = Leader
 
 =============================================================================
 \* Modification History
-\* Last modified Thu Apr 29 17:16:17 CST 2021 by Dell
+\* Last modified Thu Apr 29 22:59:25 CST 2021 by Dell
 \* Created Sat Dec 05 13:32:08 CST 2020 by Dell
 
 
