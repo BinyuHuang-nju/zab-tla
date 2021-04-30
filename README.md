@@ -14,7 +14,7 @@ TLA+ toolbox version 1.7.0
 
 ## Run
 Create specification and run models in the usual way.  
-For example, if you want to check model with 3 servers, 2 rounds and 2 delivered transactions, you can create spec [test/ZabWithQTest.tla](test/ZabWithQTest.tla) and set *Server* as symmetrical model value {s1,s2,s3}.  
+For example, if you want to check model with 3 servers, 2 rounds and 2 delivered transactions, you can create spec [experiment/ZabWithQTest.tla](test/ZabWithQTest.tla) and set *Server* as symmetrical model value {s1,s2,s3}.  
 
 You can find our [result](test/README.md) of verification using model checking of TLA+.
 
