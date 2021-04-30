@@ -12,7 +12,7 @@ Our statistical results include: diameter of the system states that have been tr
 | ----- | ---------------------- | ------------- | ------------------ | ---------------------------- |
 | BFS   | (3 servers,2 rounds,2 transactions)    |             |       |  |
 | Simulation | (3 servers,2 rounds,2 transactions)   |    -   |  20:15:11   | 10899460942 |
-| 3     |   |    侍林天     |    |  |
+| 3     |   |        |    |  |
 | 4     |                         |         |   |    |
 | 5     |                |        |     |   |
 | 6     |                         |      |     |  |
