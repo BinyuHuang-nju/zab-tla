@@ -14,21 +14,22 @@ TLA+ toolbox version 1.7.0
 
 ## Run
 Create specification and run models in the usual way.  
-For example, if you want to check model with 3 servers, 2 rounds and 2 delivered transactions, you can create spec [experiment/ZabWithQTest.tla](experiment/ZabWithQTest.tla) and set *Server* as symmetrical model value {s1,s2,s3}.  
+For example, if you want to check model with 3 servers, 2 rounds and 2 delivered transactions, you can create spec [experiment/ZabWithQTest.tla](experiment/ZabWithQTest.tla) and set *Server* as symmetrical model value {s1,s2,s3}.   
+You need to change the number in the first two lines in every action in this spec when you want to run models with different number of rounds or length of history. In fact, it is unnecessary to modify all actions. Just modifying parameter *Len(history[i])* in *ClientRequest* can control the number of transactions broadcast. Just modifying parameter *currentEpoch[i]* in *LeaderDiscovery1* can control the number of rounds of effective leader election.(What I mean effective is that leader determines its new epoch by broadcasting *NEWEPOCH*)
 
 You can find our [result](experiment/README.md) of verification using model checking of TLA+.
 
 ## Abstraction in specification
 >The Zab protocol in paper dose not focus on leader election, so we abstract the process of leader election in spec. Our spec can simulate non-Byzantion faults. In addition, what we pay attention to is consistency of system state, and we abstract or omit some parts in actual implementation, such as replying results to client.
 
-### Note 1
+### Abstraction to Election
 Except for the action *Election*, all actions perform on a specific server to reflect the feature of distributed. Since the paper does not pay attention to the process of selecting a leader, we abstract this process and it can be reflected in action *Election*. *Election* and actions which call it are the only actions that are abstracted in the whole specification.
 
-### Note 2
-Communication in Zab is based on TCP channels, so there is no packet loss, redundancy, or disorder in message delivery. We use module *Sequence* in TLA+ to simulate the property of receiving messages in order.  
+### Abstraction to communication medium
+Communication in Zab is based on TCP channels, so there is no packet loss, redundancy, or disorder in message delivery. We use module *Sequence* in TLA+ to simulate channel meeting the property of receiving messages in order. So there is a certain difference between our communication channel and end-to-end TCP channel.    
 We believe it can simulate message delay when a server does not perform the action of receiving messages. And it can simulate a process failuere when a server does not perform any action.
 
-### Note 3
+### Abstraction and omission to actions unrelated to system state
 What we care about is consistecy of the state in the system. We do not care about details like client's request to the system or the system's reply to client, or server delivering transactions to replica. Therefore, we simplify the process of client requesting, and omit reply to client. We assume that each committed transaction will be delivered to replica immediately, so we can treat variable history[i][1..commitIndex] as the transaction sequence that server *i* delivers to the corresponding replica.
 
 ## Differences from paper
