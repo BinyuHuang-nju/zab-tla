@@ -14,9 +14,9 @@ TLA+ toolbox version 1.7.0
 
 ## Run
 Create specification and run models in the usual way.  
-For example, if you want to check model with 3 servers, 2 rounds and 2 delivered transactions, you can create spec [experiment/ZabWithQTest.tla](test/ZabWithQTest.tla) and set *Server* as symmetrical model value {s1,s2,s3}.  
+For example, if you want to check model with 3 servers, 2 rounds and 2 delivered transactions, you can create spec [experiment/ZabWithQTest.tla](experiment/ZabWithQTest.tla) and set *Server* as symmetrical model value {s1,s2,s3}.  
 
-You can find our [result](test/README.md) of verification using model checking of TLA+.
+You can find our [result](experiment/README.md) of verification using model checking of TLA+.
 
 ## Notes
 >The Zab protocol in paper dose not focus on leader election, so we abstract the process of leader election in spec. Our spec can simulate non-Byzantion faults. In addition, what we pay attention to is consistency of system state, and we abstract or omit some parts in actual implementation, such as replying results to client.
