@@ -14,9 +14,12 @@ TLA+ toolbox version 1.7.0
 
 ## Run
 Create specification and run models in the usual way.  
-For example, if you want to check model with 3 servers, 2 rounds and 2 delivered transactions, you can create spec [test/ZabWithQTest.tla](test/ZabWithQTest.tla) and set *Server* as symmetrical model value {s1,s2,s3}.
+For example, if you want to check model with 3 servers, 2 rounds and 2 delivered transactions, you can create spec [test/ZabWithQTest.tla](test/ZabWithQTest.tla) and set *Server* as symmetrical model value {s1,s2,s3}.  
+
+You can find our [result](test/README.md) of verification using model checking of TLA+.
 
 ## Notes
+>The Zab protocol in paper dose not focus on leader election, so we abstract the process of leader election in spec. Our spec can simulate non-Byzantion faults. In addition, what we pay attention to is consistency of system state, and we abstract or omit some parts in actual implementation, such as replying results to client.
 
 ### Note 1
 Except for the action *Election*, all actions perform on a specific server to reflect the feature of distributed. Since the paper does not pay attention to the process of selecting a leader, we abstract this process and it can be reflected in action *Election*. *Election* and actions which call it are the only actions that are abstracted in the whole specification.
@@ -29,8 +32,9 @@ We believe it can simulate message delay when a server does not perform the acti
 What we care about is consistecy of the state in the system. We do not care about details like client's request to the system or the system's reply to client, or server delivering transactions to replica. Therefore, we simplify the process of client requesting, and omit reply to client. We assume that each committed transaction will be delivered to replica immediately, so we can treat variable history[i][1..commitIndex] as the transaction sequence that server *i* delivers to the corresponding replica.
 
 ## Differences from paper
+>This section describes difference between the protocol in paper and our specification.
 
-### Issue 1 Line: 196, Action: Election
+### Issue 1 Line: 196(line number in Zab.tla), Action: Election
 In *Step l.1.1* and *Step l.2.2* in paper, a prospective leader will not perform the next action until receiving a quorum of followers. It obviously affects availability. We think the leader itself should be a member of the quorum. So, when we reset variables *cepochRecv*, *ackeRecv* and *ackldRecv* in the action *Election*, we initialize these sets with adding leader ID to the sets.  
 In addition, according to *Step l.1.1* in paper, we know that the prospective leader determines its *cluster*(*Q* in paper) is based on information from *CEPOCH* received. So, Q is a set not satisfying the property of quorum in the initial stage of Phase 1(*Discovery*), which may trigger action *LeaderTimeout* to perform a new round of election. For this reason, we initialize *Q* in action *Election*, so that *Q* maintains the property of quorum anytime in this round.
 
@@ -41,6 +45,7 @@ In *Step l.1.2* in paper, the prospective leader selects best information to upd
 In *Step f.2.1* in paper, in general, since each follower in Q will receive *NEWEPOCH* before receiving *NEWLEADER*, the *currentEpoch[i]* of server *i* is equal to the epoch in *NEWLEADER*. In some extreme cases, the *currentEpoch[i]* may be larger than the epoch in *NEWLEADER*. In these cases, comparing that server *i* perform a new round of election, we discard such messages whose epoch is smaller than local epoch.
 
 ## Addition in specification
+> This section describes parts that are added in our specification compared with the protocol in paper.
 
 ### Issue 4 Line: 261, Action: Restart, RecoveryAfterRestart, HandleRecoveryRequest, HandleRecoveryResponse, FindCluster
 *Step l.3.3* and *Step l.3.4* in paper describe the process of the leader replying when receiving *CEPOCH*, and adding it to *Q* after receiving *ACK-LD*. These steps describe how leader lets a new member join the cluster, but the paper lacks the process of how a certain server finds a leader and sends *CEPOCH* to it. Here we imitate the recovery mechanism of View-Stamped Replication. The specific process is:  

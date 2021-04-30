@@ -12,7 +12,8 @@ TLA+ toolbox 版本1.7.0
 创建规约并以正常方式建模并运行模型。  
 例如，如果你想测试一个规模为3台服务器、执行2轮、被提交事务数量为2的模型，你可以创建test/ZabWithQTest.tla的规约并将*Server*设置为对称的模型值{s1,s2,s3}。
 
-## 注意点
+## 规约中的抽象
+>论文中的Zab协议不关注选主过程，我们对选主过程进行抽象；且规约中能够模拟系统中的非拜占庭错误；此外，我们关注的是系统内状态的一致，从而抽象或省略了如向客户端回复结果等一些实际实现中的处理。
 
 ### Note 1
 除了*Election*动作外，其余所有动作都是作用于某一具体服务器上的，这体现了"distributed"这一特性。因为论文不注重选主过程，所以在规约中我们抽象了选主过程，将其在*Election*动作中体现。*Election*动作及调用了*Election*的动作是规约中仅有的被抽象的动作。
@@ -24,8 +25,9 @@ Zab使用的通信信道是TCP信道，所以消息传递不会出现丢包、�
 我们关心的是系统内状态的一致，不关心客户端(client)向系统请求执行和系统向客户端回复结果等的细节，以及各个服务器向副本(复制状态机)提交事务(deliver transaction)的细节。因此我们粗化了*ClientRequest*，省略了向客户端的回复。我们假设每一个可提交的事务会被立即提交到副本中，故可用变量*history[i][1..commitIndex]*来模拟节点*i*向副本提交的事务序列。
 
 ## 差异
+>该部分描述的是规约与论文的协议之间的差异。
 
-### Issue 1 Line: 196, Action: Election
+### Issue 1 Line: 196(对应于Zab.tla中的行号), Action: Election
 在论文*Step l.1.1，Stepl.2.2*中，当准领导者(prospective leader)接收到一个多数派(quorum)的跟随者(followers)的消息才会作出下一个动作，这显然降低了系统可用性，我们应该把领导者自身也算入到该多数派中。考虑这样一种情况，系统内有3台服务器，其中有一台宕机，那么剩余两台服务器组成的集群中，准领导者接收到的某一消息最多只会来自于另一台，从而导致无法做出下一个动作，整个系统无法推进，这显然是违背了共识协议的高可用性的。于是，我们在动作*Election*中对变量*cepochRecv*，*ackeRecv*和*ackldRecv*重置时就将领导者节点ID加入到集合中。  
 此外，准领导者是根据论文*Step l.1.1*中的*CEPOCH*的接收信息来确定它的集群*Q*。那么在Phase1(*Discovery*)初始阶段，*Q*是一个不满足多数派性质的集合(set)，这可能会触发动作*LeaderTimeout*来进行一轮新的选主(leader election)。故我们在动作*Election*中先确定了*Q*，使其在这轮中始终满足多数派性质。
 
@@ -37,7 +39,8 @@ Zab使用的通信信道是TCP信道，所以消息传递不会出现丢包、�
 在论文*Step f.2.1*中，由于在一般情况下，*Q*中的每个跟随者会在接收到*NEWLEADER*之前先接收到*NEWEPOCH*，故节点*i*的*currentEpoch[i]*与*NEWLEADER*中的epoch是相等的。在某些极端情况下，会有节点*i*的*currentEpoch[i]*比*NEWLEADER*中的epoch大。我们选择丢弃这样的比自己的epoch小的消息，论文中选择的是进行新一轮的选主。
 
 
-## 增加
+## 添加
+>该部分描述的是规约中相比与论文协议进行扩展增加的部分。
 
 ### Issue 4 Line: 261, Action: Restart, RecoveryAfterRestart, HandleRecoveryRequest, HandleRecoveryResponse, FindCluster
 论文*Step l.3.3*和*Stepl.3.4*描述了领导者接收到*CEPOCH*进行回复，并在接收到*ACK-LD*后将其加入集群*Q*的过程。但是文中缺少了某个节点是如何找到领导者并给领导者发送*CEPOCH*的。这里我们给出了自己的想法，我们模仿*View-Stamped Replication*的恢复机制。具体过程为:  

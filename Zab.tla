@@ -2,7 +2,7 @@
 \* This is the formal specification for the Zab consensus algorithm,
 \* which means Zookeeper Atomic Broadcast.
 
-\* This work is driven by Flavio P. Junqueira,"Zab: High-performance broadcast for primary-backup systems"
+\* This work is driven by  Junqueira F P, Reed B C, Serafini M. Zab: High-performance broadcast for primary-backup systems
 
 EXTENDS Integers, FiniteSets, Sequences, Naturals, TLC
 
@@ -900,7 +900,7 @@ PrimaryIntegrity == \A i, j \in Server: /\ state[i] = Leader
 
 =============================================================================
 \* Modification History
-\* Last modified Thu Apr 29 23:10:30 CST 2021 by Dell
+\* Last modified Fri Apr 30 15:47:56 CST 2021 by Dell
 \* Created Sat Dec 05 13:32:08 CST 2020 by Dell
 
 

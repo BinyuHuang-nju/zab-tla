@@ -3,7 +3,9 @@
 \* which adds some restrictions like the number of rounds and 
 \* number of transactions broadcast based on ZabWithQ.
 
-\* This work is driven by Flavio P. Junqueira,"Zab: High-performance broadcast for primary-backup systems"
+\* In this spec, we do model checking for Zab with the scale of  2 rounds of execution and 2 delivered value.
+
+\* This work is driven by  Junqueira F P, Reed B C, Serafini M. Zab: High-performance broadcast for primary-backup systems
 
 EXTENDS Integers, FiniteSets, Sequences, Naturals, TLC
 
@@ -1009,7 +1011,7 @@ Liveness property
 *) 
 =============================================================================
 \* Modification History
-\* Last modified Thu Apr 29 23:09:53 CST 2021 by Dell
+\* Last modified Fri Apr 30 15:47:49 CST 2021 by Dell
 \* Created Sat Dec 05 13:32:08 CST 2020 by Dell
 
 
