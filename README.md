@@ -1,11 +1,11 @@
 # Zab-tla
 
 ## Overview
-This project is devoted to provide formal specification and verification using TLA+ for the Zookeeper Atomic Broadcast(Zab) consensus protocol proposed in *Junqueira F P, Reed B C, Serafini M. Zab: High-performance broadcast for primary-backup systems[C]//2011 IEEE/IFIP 41st International Conference on Dependable Systems & Networks (DSN). IEEE, 2011: 245-256*.  
+This project is devoted to providing formal specification and verification using TLA+ for the Zookeeper Atomic Broadcast(Zab) consensus protocol proposed in *Junqueira F P, Reed B C, Serafini M. Zab: High-performance broadcast for primary-backup systems[C]//2011 IEEE/IFIP 41st International Conference on Dependable Systems & Networks (DSN). IEEE, 2011: 245-256*.  
 
 We have made a formal specification for Zab using TLA+ toolbox, and we have done a certain scale of model checking to verify the correctness of Zab.
 
-Due to the simplification of Zab algorithm description in the paper, some details in specification were modified and added. If you have any question, please point out.
+Due to the simplification of Zab algorithm description in the paper, some details in specification were modified and added. If you have any question, please let us know.
 
 You can find this document in chinese in [doc-in-chinsese](doc-in-chinese/README.md).
 
@@ -14,7 +14,7 @@ TLA+ toolbox version 1.7.0
 
 ## Run
 Create specification and run models in the usual way.  
-For example, if you want to check model with 3 servers, 2 rounds and 2 delivered transactions, you can create spec [test/ZabWithQTest.tla](test/ZabWithQTest.tla) and set *Server* symmetrical model value {s1,s2,s3}.
+For example, if you want to check model with 3 servers, 2 rounds and 2 delivered transactions, you can create spec [test/ZabWithQTest.tla](test/ZabWithQTest.tla) and set *Server* as symmetrical model value {s1,s2,s3}.
 
 ## Notes
 
@@ -31,7 +31,7 @@ What we care about is consistecy of the state in the system. We do not care abou
 ## Differences from paper
 
 ### Issue 1 Line: 196, Action: Election
-In *Step l.1.1* and *Step l.2.2* in paper, a prospective leader will not perform the next action until receiving a quorum of followers. It obviously affects availability. We think the leader itself should be a member of the quorum. So, when we reset variables *cepochRecv* and *ackldRecv* in the action *Election*, we initialize these sets with adding leader ID to the sets.  
+In *Step l.1.1* and *Step l.2.2* in paper, a prospective leader will not perform the next action until receiving a quorum of followers. It obviously affects availability. We think the leader itself should be a member of the quorum. So, when we reset variables *cepochRecv*, *ackeRecv* and *ackldRecv* in the action *Election*, we initialize these sets with adding leader ID to the sets.  
 In addition, according to *Step l.1.1* in paper, we know that the prospective leader determines its *cluster*(*Q* in paper) is based on information from *CEPOCH* received. So, Q is a set not satisfying the property of quorum in the initial stage of Phase 1(*Discovery*), which may trigger action *LeaderTimeout* to perform a new round of election. For this reason, we initialize *Q* in action *Election*, so that *Q* maintains the property of quorum anytime in this round.
 
 ### Issue 2 Line: 417, Action: LeaderHandleACKE; Line: 442, Action: LeaderDiscovery2Sync1
@@ -45,7 +45,7 @@ In *Step f.2.1* in paper, in general, since each follower in Q will receive *NEW
 ### Issue 4 Line: 261, Action: Restart, RecoveryAfterRestart, HandleRecoveryRequest, HandleRecoveryResponse, FindCluster
 *Step l.3.3* and *Step l.3.4* in paper describe the process of the leader replying when receiving *CEPOCH*, and adding it to *Q* after receiving *ACK-LD*. These steps describe how leader lets a new member join the cluster, but the paper lacks the process of how a certain server finds a leader and sends *CEPOCH* to it. Here we imitate the recovery mechanism of View-Stamped Replication. The specific process is:  
 1.	After a server restarts(*Restart*), it will send a message with type *RECOVERYREQUEST* to all other servers(*RecoveryAfterRestart*).  
-2.	Servers reply its *leaderOracle* and *currentEpoch* when receiving *RECOVERYREQUEST*.  
+2.	Servers reply its *leaderOracle* and *currentEpoch* when receiving *RECOVERYREQUEST*(*HandleRecoveryRequest*).  
 3.	When the server receives reply from a quorum, is selects data from reply with the biggest epoch and non-empty oracle to update. Then it may find the leader, and send *CEPOCH* to the leader to try to achieve state consistency(*HandleRecoveryResponse*,*FindCluster*).  
 
 It is common when the leader the server finds is not the latest leader. In this case, it will not receive ack of *CEPOCH* and search new leader again.
