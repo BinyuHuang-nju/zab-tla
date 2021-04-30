@@ -18,7 +18,7 @@ For example, if you want to check model with 3 servers, 2 rounds and 2 delivered
 
 You can find our [result](experiment/README.md) of verification using model checking of TLA+.
 
-## Notes
+## Abstraction in specification
 >The Zab protocol in paper dose not focus on leader election, so we abstract the process of leader election in spec. Our spec can simulate non-Byzantion faults. In addition, what we pay attention to is consistency of system state, and we abstract or omit some parts in actual implementation, such as replying results to client.
 
 ### Note 1
