@@ -273,7 +273,7 @@ FollowerTimeout(i) ==
 \* by broadcast recovery and wait until receiving responses from a quorum of servers.
 Restart(i) ==
         \* test restrictions
-        /\ currentEpoch[i] <= -1
+        /\ currentEpoch[i] <= 2
         /\ Len(history[i]) <= 2
         /\ state'        = [state        EXCEPT ![i] = Follower]
         /\ leaderOracle' = [leaderOracle EXCEPT ![i] = NullPoint]
@@ -287,7 +287,7 @@ Restart(i) ==
 
 RecoveryAfterRestart(i) ==
         \* test restrictions
-        /\ currentEpoch[i] <= -1
+        /\ currentEpoch[i] <= 2
         /\ Len(history[i]) <= 2
         /\ state[i] = Follower
         /\ leaderOracle[i] = NullPoint
@@ -1009,7 +1009,7 @@ Liveness property
 *) 
 =============================================================================
 \* Modification History
-\* Last modified Thu Apr 29 22:54:49 CST 2021 by Dell
+\* Last modified Thu Apr 29 23:09:53 CST 2021 by Dell
 \* Created Sat Dec 05 13:32:08 CST 2020 by Dell
 
 

@@ -728,8 +728,10 @@ BecomeFollower(i) ==
                                         /\ state'        = [state        EXCEPT ![i] = Follower]
                                         /\ currentEpoch' = [currentEpoch EXCEPT ![i] = msg.mepoch]
                                         /\ leaderOracle' = [leaderOracle EXCEPT ![i] = j]
+                                        /\ Reply(i, j, [mtype |-> CEPOCH,
+                                                        mepoch|-> currentEpoch[i]])
                                         \* Here we should not use Discard.
-        /\ UNCHANGED <<leaderEpoch, history, commitIndex, msgs, leaderVars, tempVars, cepochSent, recoveryVars, proposalMsgsLog>>
+        /\ UNCHANGED <<leaderEpoch, history, commitIndex, leaderVars, tempVars, cepochSent, recoveryVars, proposalMsgsLog>>
                                         
 ----------------------------------------------------------------------------
 DiscardStaleMessage(i) ==
@@ -898,7 +900,7 @@ PrimaryIntegrity == \A i, j \in Server: /\ state[i] = Leader
 
 =============================================================================
 \* Modification History
-\* Last modified Thu Apr 29 22:59:25 CST 2021 by Dell
+\* Last modified Thu Apr 29 23:10:30 CST 2021 by Dell
 \* Created Sat Dec 05 13:32:08 CST 2020 by Dell
 
 
