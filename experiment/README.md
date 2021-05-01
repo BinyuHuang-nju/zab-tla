@@ -13,11 +13,11 @@ The machine configuration used in the experiment is 2.40 GHz, 10-core CPU, 64GB 
 
 ## Verification results of model checking  
 |  Mode  |     TLC model         |    Diameter   |     num of states  | time of checking(hh:mm:ss)   |
-| ----- | ---------------------- | ------------- | ------------------ | ---------------------------- |
-| BFS   | (3 servers,2 rounds,2 transactions)    |             |       |  |
+| ----- | ---------------------- | ------------- | ------------------ | ------------------ |
+| BFS   | (3 servers,2 rounds,2 transactions)    |     19   |  4275801206 |  09:40:08|
 | Simulation | (3 servers,2 rounds,2 transactions)   |    -   |  10899460942  | 20:15:11  |
 | 3     |   |        |    |  |
-| 4     |                         |         |   |    |
+| Simulation | (3 servers,2 rounds,2 transactions)  |  -    | 9639135842  |   20:10:00 |
 | 5     |                |        |     |   |
 | 6     |                         |      |     |  |
 | 7     |         |         |    |      |
