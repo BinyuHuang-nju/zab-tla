@@ -18,6 +18,6 @@ The machine configuration used in the experiment is 2.40 GHz, 10-core CPU, 64GB 
 | Simulation | (3 servers,2 rounds,2 transactions)   |   -|  10899460942| 20:15:11  |
 | BFS   | (3 servers,2 rounds,3 transactions)   |    22    |  8740566213  | 17:49:09 |
 | Simulation | (3 servers,2 rounds,3 transactions)  |  -    | 9639135842  |   20:10:00 |
-| 5     |                |        |     |   |
-| 6     |                         |      |     |  |
-| 7     |         |         |    |      |
+| BFS    |  (3 servers,3 rounds,2 transactions)    |    21    | 7079744342    |14:17:45 |
+| Simulation | (3 servers,3 rounds,2 transactions)    |  -  |  6254964039   | 15:08:42 |
+

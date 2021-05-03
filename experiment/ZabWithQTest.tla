@@ -3,7 +3,7 @@
 \* which adds some restrictions like the number of rounds and 
 \* number of transactions broadcast based on ZabWithQ.
 
-\* In this spec, we do model checking for Zab with the scale of  2 rounds of execution and 2 delivered value.
+\* In this spec, we do model checking for Zab with the scale of  3 rounds of execution and 2 delivered value.
 
 \* This work is driven by  Junqueira F P, Reed B C, Serafini M. Zab: High-performance broadcast for primary-backup systems
 
@@ -198,7 +198,7 @@ Init == /\ state              = [s \in Server |-> Follower]
 \* A server becomes pleader and a quorum servers knows that.
 Election(i, Q) ==
         \* test restrictions
-        /\ \A s \in Server: currentEpoch[s] <= 1 /\ Len(history[s]) <= 2
+        /\ \A s \in Server: currentEpoch[s] <= 2 /\ Len(history[s]) <= 2
         /\ i \in Q
         /\ state'              = [s \in Server |-> IF s = i THEN ProspectiveLeader
                                                             ELSE IF s \in Q THEN Follower
@@ -230,7 +230,7 @@ Election(i, Q) ==
 \* Because we abstract the part of leader election, we can use global variables in this action.
 InitialElection(i, Q) ==
         \* test restrictions
-        /\ currentEpoch[i] <= 2
+        /\ currentEpoch[i] <= 3
         /\ Len(history[i]) <= 2
         /\ \A s \in Server: state[s] = Follower /\ leaderOracle[s] = NullPoint
         /\ Election(i, Q)
@@ -239,7 +239,7 @@ InitialElection(i, Q) ==
 \* The leader finds timeout with another follower.
 LeaderTimeout(i, j) ==
         \* test restrictions
-        /\ currentEpoch[i] <= 2
+        /\ currentEpoch[i] <= 3
         /\ Len(history[i]) <= 2
         /\ state[i] # Follower
         /\ j /= i
@@ -261,7 +261,7 @@ LeaderTimeout(i, j) ==
 \* A follower finds timeout with the leader.
 FollowerTimeout(i) ==
         \* test restrictions
-        /\ currentEpoch[i] <= 2
+        /\ currentEpoch[i] <= 3
         /\ Len(history[i]) <= 2
         /\ state[i] = Follower
         /\ leaderOracle[i] /= NullPoint
@@ -275,7 +275,7 @@ FollowerTimeout(i) ==
 \* by broadcast recovery and wait until receiving responses from a quorum of servers.
 Restart(i) ==
         \* test restrictions
-        /\ currentEpoch[i] <= 2
+        /\ currentEpoch[i] <= 3
         /\ Len(history[i]) <= 2
         /\ state'        = [state        EXCEPT ![i] = Follower]
         /\ leaderOracle' = [leaderOracle EXCEPT ![i] = NullPoint]
@@ -289,7 +289,7 @@ Restart(i) ==
 
 RecoveryAfterRestart(i) ==
         \* test restrictions
-        /\ currentEpoch[i] <= 2
+        /\ currentEpoch[i] <= 3
         /\ Len(history[i]) <= 2
         /\ state[i] = Follower
         /\ leaderOracle[i] = NullPoint
@@ -303,7 +303,7 @@ RecoveryAfterRestart(i) ==
 
 HandleRecoveryRequest(i, j) ==
         \* test restrictions
-        /\ currentEpoch[i] <= 2
+        /\ currentEpoch[i] <= 3
         /\ Len(history[i]) <= 2
         /\ msgs[j][i] /= << >>
         /\ msgs[j][i][1].mtype = RECOVERYREQUEST
@@ -314,7 +314,7 @@ HandleRecoveryRequest(i, j) ==
 
 HandleRecoveryResponse(i, j) ==
         \* test restrictions
-        /\ currentEpoch[i] <= 2
+        /\ currentEpoch[i] <= 3
         /\ Len(history[i]) <= 2
         /\ msgs[j][i] /= << >>
         /\ msgs[j][i][1].mtype = RECOVERYRESPONSE
@@ -333,7 +333,7 @@ HandleRecoveryResponse(i, j) ==
 
 FindCluster(i) == 
         \* test restrictions
-        /\ currentEpoch[i] <= 2
+        /\ currentEpoch[i] <= 3
         /\ Len(history[i]) <= 2
         /\ state[i] = Follower
         /\ leaderOracle[i] = NullPoint
@@ -357,7 +357,7 @@ FindCluster(i) ==
 \* In phase f11, follower sends f.p to pleader via CEPOCH.
 FollowerDiscovery1(i) ==
         \* test restrictions
-        /\ currentEpoch[i] <= 2
+        /\ currentEpoch[i] <= 3
         /\ Len(history[i]) <= 2
         /\ state[i] = Follower
         /\ leaderOracle[i] /= NullPoint
@@ -372,7 +372,7 @@ FollowerDiscovery1(i) ==
 \* as its own l.p and sends NEWEPOCH to followers.                 
 LeaderHandleCEPOCH(i, j) ==
         \* test restrictions
-        /\ tempMaxEpoch[i] <= 1
+        /\ tempMaxEpoch[i] <= 2
         /\ Len(history[i]) <= 2
         /\ state[i] = ProspectiveLeader
         /\ msgs[j][i] /= << >>
@@ -404,7 +404,7 @@ LeaderHandleCEPOCH(i, j) ==
 \* a new leader who share the same expoch. So here I just change leaderEpoch, and use it in handling ACK-E.
 LeaderDiscovery1(i) ==
         \* test restrictions
-        /\ tempMaxEpoch[i] <= 1
+        /\ tempMaxEpoch[i] <= 2
         /\ Len(history[i]) <= 2
         /\ state[i] = ProspectiveLeader
         /\ cepochRecv[i] \in Quorums
@@ -419,7 +419,7 @@ LeaderDiscovery1(i) ==
 \* and ACKE contains f.a and hf to help pleader choose a newer history.
 FollowerDiscovery2(i, j) ==
         \* test restrictions
-        /\ currentEpoch[i] <= 2
+        /\ currentEpoch[i] <= 3
         /\ Len(history[i]) <= 2
         /\ state[i] = Follower
         /\ msgs[j][i] /= << >>
@@ -458,7 +458,7 @@ FollowerDiscovery2(i, j) ==
 \* and select the history of one most up-to-date follower to be the initial history.          
 LeaderHandleACKE(i, j) ==
         \* test restrictions
-        /\ currentEpoch[i] <= 2
+        /\ currentEpoch[i] <= 3
         /\ Len(history[i]) <= 2
         /\ state[i] = ProspectiveLeader
         /\ msgs[j][i] /= << >>
@@ -486,7 +486,7 @@ LeaderHandleACKE(i, j) ==
 
 LeaderDiscovery2Sync1(i) ==
         \* test restrictions
-        /\ currentEpoch[i] <= 2
+        /\ currentEpoch[i] <= 3
         /\ Len(history[i]) <= 2
         /\ state[i] = ProspectiveLeader
         /\ ackeRecv[i] \in Quorums
@@ -512,7 +512,7 @@ LeaderDiscovery2Sync1(i) ==
 \* and sends back ACK-LD to pleader.
 FollowerSync1(i, j) ==
         \* test restrictions
-        /\ currentEpoch[i] <= 2
+        /\ currentEpoch[i] <= 3
         /\ Len(history[i]) <= 2
         /\ state[i] = Follower
         /\ msgs[j][i] /= << >>
@@ -537,7 +537,7 @@ FollowerSync1(i, j) ==
 \* In phase l22, pleader receives ACK-LD from a quorum of followers, and sends COMMIT-LD to followers.
 LeaderHandleACKLD(i, j) ==
         \* test restrictions
-        /\ currentEpoch[i] <= 2
+        /\ currentEpoch[i] <= 3
         /\ Len(history[i]) <= 2
         /\ state[i] = ProspectiveLeader
         /\ msgs[j][i] /= << >>
@@ -557,7 +557,7 @@ LeaderHandleACKLD(i, j) ==
 
 LeaderSync2(i) == 
         \* test restrictions
-        /\ currentEpoch[i] <= 2
+        /\ currentEpoch[i] <= 3
         /\ Len(history[i]) <= 2
         /\ state[i] = ProspectiveLeader
         /\ ackldRecv[i] \in Quorums
@@ -576,7 +576,7 @@ LeaderSync2(i) ==
 \* In phase f22, follower receives COMMIT-LD and delivers all unprocessed transaction.
 FollowerSync2(i, j) ==
         \* test restrictions
-        /\ currentEpoch[i] <= 2
+        /\ currentEpoch[i] <= 3
         /\ Len(history[i]) <= 2
         /\ state[i] = Follower
         /\ msgs[j][i] /= << >>
@@ -606,7 +606,7 @@ FollowerSync2(i, j) ==
 \* In phase l31, leader receives client request and broadcasts PROPOSE.
 ClientRequest(i, v) ==
         \* test restrictions
-        /\ currentEpoch[i] <= 2
+        /\ currentEpoch[i] <= 3
         /\ Len(history[i]) <= 1
         /\ state[i] = Leader
         /\ currentCounter' = [currentCounter EXCEPT ![i] = currentCounter[i] + 1]
@@ -620,7 +620,7 @@ ClientRequest(i, v) ==
 
 LeaderBroadcast1(i) ==
         \* test restrictions
-        /\ currentEpoch[i] <= 2
+        /\ currentEpoch[i] <= 3
         /\ Len(history[i]) <= 2
         /\ state[i] = Leader
         /\ sendCounter[i] < currentCounter[i]
@@ -639,7 +639,7 @@ LeaderBroadcast1(i) ==
 \* In phase f31, follower accepts proposal and append it to history.
 FollowerBroadcast1(i, j) ==
         \* test restrictions
-        /\ currentEpoch[i] <= 2
+        /\ currentEpoch[i] <= 3
         /\ Len(history[i]) <= 2
         /\ state[i] = Follower
         /\ msgs[j][i] /= << >>
@@ -665,7 +665,7 @@ FollowerBroadcast1(i, j) ==
 \* and commits the proposal.
 LeaderHandleACK(i, j) ==
         \* test restrictions
-        /\ currentEpoch[i] <= 2
+        /\ currentEpoch[i] <= 3
         /\ Len(history[i]) <= 2
         /\ state[i] = Leader
         /\ msgs[j][i] /= << >>
@@ -683,7 +683,7 @@ LeaderHandleACK(i, j) ==
 
 LeaderAdvanceCommit(i) ==
         \* test restrictions
-        /\ currentEpoch[i] <= 2
+        /\ currentEpoch[i] <= 3
         /\ Len(history[i]) <= 2
         /\ state[i] = Leader
         /\ commitIndex[i] < Len(history[i])
@@ -713,7 +713,7 @@ LeaderBroadcast2(i) ==
 \* In phase f32, follower receives COMMIT and commits transaction.
 FollowerBroadcast2(i, j) ==
         \* test restrictions
-        /\ currentEpoch[i] <= 2
+        /\ currentEpoch[i] <= 3
         /\ Len(history[i]) <= 2
         /\ state[i] = Follower
         /\ msgs[j][i] /= << >>
@@ -756,7 +756,7 @@ FollowerBroadcast2(i, j) ==
 \* In phase l33, upon receiving CEPOCH, leader l proposes back NEWEPOCH and NEWLEADER.
 LeaderHandleCEPOCHinPhase3(i, j) ==
         \* test restrictions
-        /\ currentEpoch[i] <= 2
+        /\ currentEpoch[i] <= 3
         /\ Len(history[i]) <= 2
         /\ state[i] = Leader
         /\ msgs[j][i] /= << >>
@@ -776,7 +776,7 @@ LeaderHandleCEPOCHinPhase3(i, j) ==
 \* Leader l also makes Q := Q \union {f}.
 LeaderHandleACKLDinPhase3(i, j) ==
         \* test restrictions
-        /\ currentEpoch[i] <= 2
+        /\ currentEpoch[i] <= 3
         /\ Len(history[i]) <= 2
         /\ state[i] = Leader
         /\ msgs[j][i] /= << >>
@@ -812,7 +812,7 @@ LeaderHandleACKLDinPhase3(i, j) ==
 \*    again, to receive the newest history from leader.
 BecomeFollower(i) ==
         \* test restrictions
-        /\ currentEpoch[i] <= 2
+        /\ currentEpoch[i] <= 3
         /\ Len(history[i]) <= 2
         /\ state[i] /= Follower
         /\ \E j \in Server \ {i}: /\ msgs[j][i] /= << >>   
@@ -837,7 +837,7 @@ BecomeFollower(i) ==
 ----------------------------------------------------------------------------
 DiscardStaleMessage(i) ==
         \* test restrictions
-        /\ currentEpoch[i] <= 2
+        /\ currentEpoch[i] <= 3
         /\ Len(history[i]) <= 2
         /\ \E j \in Server \ {i}: /\ msgs[j][i] /= << >>
                                   /\ msgs[j][i][1].mtype /= RECOVERYREQUEST
@@ -1011,7 +1011,7 @@ Liveness property
 *) 
 =============================================================================
 \* Modification History
-\* Last modified Fri Apr 30 15:47:49 CST 2021 by Dell
+\* Last modified Mon May 03 13:03:26 CST 2021 by Dell
 \* Created Sat Dec 05 13:32:08 CST 2020 by Dell
 
 
