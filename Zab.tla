@@ -365,7 +365,7 @@ LeaderHandleCEPOCH(i, j) ==
                        committedIndex, cepochSent, tempMaxLastEpoch, tempInitialHistory, recoveryVars, proposalMsgsLog>>
 
 \* Here I decide to change leader's epoch in l12&l21, otherwise there may exist an old leader and
-\* a new leader who share the same expoch. So here I just change leaderEpoch, and use it in handling ACK-E.
+\* a new leader who share the same epoch. So here I just change leaderEpoch, and use it in handling ACK-E.
 LeaderDiscovery1(i) ==
         /\ state[i] = ProspectiveLeader
         /\ cepochRecv[i] \in Quorums
@@ -682,9 +682,12 @@ LeaderHandleCEPOCHinPhase3(i, j) ==
                                  [mtype           |-> NEWLEADER,
                                   mepoch          |-> currentEpoch[i],
                                   minitialHistory |-> history[i]])
+                 /\ LET m == [msource|->i,mtype|->NEWLEADER,mepoch|->currentEpoch[i],mproposals|->history[i]]
+                    IN proposalMsgsLog' = IF m \in proposalMsgsLog THEN proposalMsgsLog
+                                          ELSE proposalMsgsLog \union {m}
               \/ /\ currentEpoch[i] < msg.mepoch
-                 /\ UNCHANGED msgs
-        /\ UNCHANGED <<serverVars, leaderVars, tempVars, cepochSent, recoveryVars, proposalMsgsLog>>
+                 /\ UNCHANGED <<msgs, proposalMsgsLog>>
+        /\ UNCHANGED <<serverVars, leaderVars, tempVars, cepochSent, recoveryVars>>
         
 \* In phase l34, upon receiving ack from f of the NEWLEADER, it sends a commit message to f.
 \* Leader l also makes Q := Q \union {f}.
@@ -907,7 +910,7 @@ PrimaryIntegrity == \A i, j \in Server: /\ state[i] = Leader
 
 =============================================================================
 \* Modification History
-\* Last modified Mon May 03 21:58:44 CST 2021 by Dell
+\* Last modified Wed May 05 22:11:47 CST 2021 by Dell
 \* Created Sat Dec 05 13:32:08 CST 2020 by Dell
 
 

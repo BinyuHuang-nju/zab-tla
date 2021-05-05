@@ -3,8 +3,6 @@
 \* which adds some restrictions like the number of rounds and 
 \* number of transactions broadcast based on ZabWithQ.
 
-\* In this spec, we do model checking for Zab with the scale of  3 rounds of execution and 2 delivered value.
-
 \* This work is driven by  Junqueira F P, Reed B C, Serafini M. Zab: High-performance broadcast for primary-backup systems
 
 EXTENDS Integers, FiniteSets, Sequences, Naturals, TLC
@@ -27,6 +25,9 @@ CONSTANTS RECOVERYREQUEST, RECOVERYRESPONSE
 
 \* the maximum round of epoch (initially {0,1,2}), currently not used
 \* CONSTANT Epoches
+
+\* constants that uniquely used for constraining state space in model checking
+CONSTANTS MaxElectionNum, MaxTotalRestartNum, MaxTransactionNum
 ----------------------------------------------------------------------------
 \* Return the maximum value from the set S
 Maximum(S) == IF S = {} THEN -1
@@ -126,15 +127,25 @@ VARIABLE recoveryMaxEpoch
 
 VARIABLE recoveryMEOracle
 
+\* Helper variable for server after restart to stop sending RECOVERYREQUEST continuously.
 VARIABLE recoverySent
+
+\* variables that uniquely used for constraining state space in model checking
+VARIABLES electionNum, \* the round of leader election, not equal to Maximum{currentEpoch[i]: i \in Server},
+                       \* because currentEpoch will increase only when follower receives NEWEPOCH,
+                       \* and it is common that some round of election ends without leader broadcasting NEWEPOCH
+                       \* or follower receiving NEWEPOCH.
+          totalRestartNum \* the number of restart from all servers, also as a global variable.
+
 
 \* Persistent state of a server: history, currentEpoch, leaderEpoch
 serverVars == <<state, currentEpoch, leaderEpoch, leaderOracle, history, commitIndex>>
 leaderVars == <<cluster, cepochRecv, ackeRecv, ackldRecv, ackIndex, currentCounter, sendCounter, initialHistory, committedIndex>>
 tempVars   == <<tempMaxEpoch, tempMaxLastEpoch, tempInitialHistory>>
 recoveryVars == <<recoveryRespRecv, recoveryMaxEpoch, recoveryMEOracle, recoverySent>>
+testVars   == <<electionNum, totalRestartNum>>
 
-vars == <<serverVars, msgs, leaderVars, tempVars, recoveryVars, cepochSent, proposalMsgsLog>>
+vars == <<serverVars, msgs, leaderVars, tempVars, recoveryVars, cepochSent, proposalMsgsLog, testVars>>
 ----------------------------------------------------------------------------
 LastZxid(his) == IF Len(his) > 0 THEN <<his[Len(his)].epoch,his[Len(his)].counter>>
                                  ELSE <<-1, -1>>
@@ -193,13 +204,16 @@ Init == /\ state              = [s \in Server |-> Follower]
         /\ recoveryMEOracle   = [s \in Server |-> NullPoint]
         /\ recoverySent       = [s \in Server |-> FALSE]
         /\ proposalMsgsLog    = {}
+        /\ electionNum        = 0
+        /\ totalRestartNum    = 0
 
 ----------------------------------------------------------------------------     
 \* A server becomes pleader and a quorum servers knows that.
 Election(i, Q) ==
         \* test restrictions
-        /\ \A s \in Server: currentEpoch[s] <= 2 /\ Len(history[s]) <= 2
+        /\ electionNum < MaxElectionNum
         /\ i \in Q
+        /\ electionNum' = electionNum + 1
         /\ state'              = [s \in Server |-> IF s = i THEN ProspectiveLeader
                                                             ELSE IF s \in Q THEN Follower
                                                                             ELSE state[s]]
@@ -229,19 +243,13 @@ Election(i, Q) ==
 \* The action should be triggered once at the beginning.
 \* Because we abstract the part of leader election, we can use global variables in this action.
 InitialElection(i, Q) ==
-        \* test restrictions
-        /\ currentEpoch[i] <= 3
-        /\ Len(history[i]) <= 2
         /\ \A s \in Server: state[s] = Follower /\ leaderOracle[s] = NullPoint
         /\ Election(i, Q)
-        /\ UNCHANGED <<currentEpoch, history, commitIndex, currentCounter, sendCounter, recoveryVars, proposalMsgsLog>>
+        /\ UNCHANGED <<currentEpoch, history, commitIndex, currentCounter, sendCounter, recoveryVars, proposalMsgsLog, totalRestartNum>>
 
 \* The leader finds timeout with another follower.
 LeaderTimeout(i, j) ==
-        \* test restrictions
-        /\ currentEpoch[i] <= 3
-        /\ Len(history[i]) <= 2
-        /\ state[i] # Follower
+        /\ state[i] /= Follower
         /\ j /= i
         /\ j \in cluster[i]
         /\ LET newCluster == cluster[i] \ {j}
@@ -249,25 +257,22 @@ LeaderTimeout(i, j) ==
                     /\ cluster' = [cluster EXCEPT ![i] = newCluster]
                     /\ clean(i, j)
                     /\ UNCHANGED<<state, cepochRecv,ackeRecv, ackldRecv, ackIndex, committedIndex, initialHistory,
-                                  tempMaxEpoch, tempMaxLastEpoch, tempInitialHistory, leaderOracle, leaderEpoch, cepochSent>>
+                                  tempMaxEpoch, tempMaxLastEpoch, tempInitialHistory, leaderOracle, leaderEpoch, cepochSent, electionNum>>
                  \/ /\ newCluster \notin Quorums
                     /\ \* LET Q == CHOOSE q \in Quorums: i \in q
                        \*     v == CHOOSE s \in Q: TRUE
                        \* IN Election(v, Q)
                        \E Q \in Quorums: /\ i \in Q
                                          /\ \E v \in Q: Election(v, Q)
-        /\ UNCHANGED <<currentEpoch, history, commitIndex, currentCounter, sendCounter, recoveryVars, proposalMsgsLog>>
+        /\ UNCHANGED <<currentEpoch, history, commitIndex, currentCounter, sendCounter, recoveryVars, proposalMsgsLog, totalRestartNum>>
         
 \* A follower finds timeout with the leader.
 FollowerTimeout(i) ==
-        \* test restrictions
-        /\ currentEpoch[i] <= 3
-        /\ Len(history[i]) <= 2
         /\ state[i] = Follower
         /\ leaderOracle[i] /= NullPoint
         /\ \E Q \in Quorums: /\ i \in Q
                              /\ \E v \in Q: Election(v, Q)
-        /\ UNCHANGED <<currentEpoch, history, commitIndex, currentCounter, sendCounter, recoveryVars, proposalMsgsLog>>
+        /\ UNCHANGED <<currentEpoch, history, commitIndex, currentCounter, sendCounter, recoveryVars, proposalMsgsLog, totalRestartNum>>
 
 ----------------------------------------------------------------------------
 \* A server halts and restarts.
@@ -275,8 +280,8 @@ FollowerTimeout(i) ==
 \* by broadcast recovery and wait until receiving responses from a quorum of servers.
 Restart(i) ==
         \* test restrictions
-        /\ currentEpoch[i] <= 3
-        /\ Len(history[i]) <= 2
+        /\ totalRestartNum < MaxTotalRestartNum
+        /\ totalRestartNum' = totalRestartNum + 1
         /\ state'        = [state        EXCEPT ![i] = Follower]
         /\ leaderOracle' = [leaderOracle EXCEPT ![i] = NullPoint]
         /\ commitIndex'  = [commitIndex  EXCEPT ![i] = 0]   
@@ -285,12 +290,11 @@ Restart(i) ==
                                                                            ELSE msgs[ii][ij]]]  
         /\ recoverySent' = [recoverySent EXCEPT ![i] = FALSE]     
         /\ UNCHANGED <<currentEpoch, leaderEpoch, history, leaderVars, tempVars, 
-                       recoveryRespRecv, recoveryMaxEpoch, recoveryMEOracle, proposalMsgsLog>>
+                       recoveryRespRecv, recoveryMaxEpoch, recoveryMEOracle, proposalMsgsLog, electionNum>>
 
 RecoveryAfterRestart(i) ==
         \* test restrictions
-        /\ currentEpoch[i] <= 3
-        /\ Len(history[i]) <= 2
+        /\ totalRestartNum < MaxTotalRestartNum
         /\ state[i] = Follower
         /\ leaderOracle[i] = NullPoint
         /\ \lnot recoverySent[i]
@@ -299,23 +303,17 @@ RecoveryAfterRestart(i) ==
         /\ recoveryMEOracle' = [recoveryMEOracle EXCEPT ![i] = NullPoint]
         /\ recoverySent'     = [recoverySent     EXCEPT ![i] = TRUE]
         /\ BroadcastToAll(i, [mtype |-> RECOVERYREQUEST])
-        /\ UNCHANGED <<serverVars, leaderVars, tempVars, cepochSent, proposalMsgsLog>>
+        /\ UNCHANGED <<serverVars, leaderVars, tempVars, cepochSent, proposalMsgsLog, testVars>>
 
 HandleRecoveryRequest(i, j) ==
-        \* test restrictions
-        /\ currentEpoch[i] <= 3
-        /\ Len(history[i]) <= 2
         /\ msgs[j][i] /= << >>
         /\ msgs[j][i][1].mtype = RECOVERYREQUEST
         /\ Reply(i, j, [mtype   |-> RECOVERYRESPONSE,
                         moracle |-> leaderOracle[i],
                         mepoch  |-> currentEpoch[i]])
-        /\ UNCHANGED <<serverVars, leaderVars, tempVars, cepochSent, recoveryVars, proposalMsgsLog>>
+        /\ UNCHANGED <<serverVars, leaderVars, tempVars, cepochSent, recoveryVars, proposalMsgsLog, testVars>>
 
 HandleRecoveryResponse(i, j) ==
-        \* test restrictions
-        /\ currentEpoch[i] <= 3
-        /\ Len(history[i]) <= 2
         /\ msgs[j][i] /= << >>
         /\ msgs[j][i][1].mtype = RECOVERYRESPONSE
         /\ LET msg    == msgs[j][i][1]
@@ -329,12 +327,9 @@ HandleRecoveryResponse(i, j) ==
         /\ Discard(j, i)
         /\ recoveryRespRecv' = [recoveryRespRecv EXCEPT ![i] = IF j \in recoveryRespRecv[i] THEN recoveryRespRecv[i]
                                                                                             ELSE recoveryRespRecv[i] \union {j}]
-        /\ UNCHANGED <<serverVars, leaderVars, tempVars, cepochSent, recoverySent, proposalMsgsLog>>
+        /\ UNCHANGED <<serverVars, leaderVars, tempVars, cepochSent, recoverySent, proposalMsgsLog, testVars>>
 
 FindCluster(i) == 
-        \* test restrictions
-        /\ currentEpoch[i] <= 3
-        /\ Len(history[i]) <= 2
         /\ state[i] = Follower
         /\ leaderOracle[i] = NullPoint
         /\ recoveryRespRecv[i] \in Quorums
@@ -351,14 +346,11 @@ FindCluster(i) ==
                                                   mepoch|-> recoveryMaxEpoch[i]])
                  /\ UNCHANGED recoverySent
         /\ UNCHANGED <<state, leaderEpoch, history, commitIndex, leaderVars, tempVars, 
-                       recoveryRespRecv, recoveryMaxEpoch, recoveryMEOracle, cepochSent, proposalMsgsLog>>
+                       recoveryRespRecv, recoveryMaxEpoch, recoveryMEOracle, cepochSent, proposalMsgsLog, testVars>>
         
 ----------------------------------------------------------------------------
 \* In phase f11, follower sends f.p to pleader via CEPOCH.
 FollowerDiscovery1(i) ==
-        \* test restrictions
-        /\ currentEpoch[i] <= 3
-        /\ Len(history[i]) <= 2
         /\ state[i] = Follower
         /\ leaderOracle[i] /= NullPoint
         /\ \lnot cepochSent[i]
@@ -366,14 +358,11 @@ FollowerDiscovery1(i) ==
            IN Send(i, leader, [mtype  |-> CEPOCH,
                                mepoch |-> currentEpoch[i]])
         /\ cepochSent' = [cepochSent EXCEPT ![i] = TRUE]
-        /\ UNCHANGED <<serverVars, leaderVars, tempVars, recoveryVars, proposalMsgsLog>>
+        /\ UNCHANGED <<serverVars, leaderVars, tempVars, recoveryVars, proposalMsgsLog, testVars>>
 
 \* In phase l11, pleader receives CEPOCH from a quorum, and choose a new epoch e'
 \* as its own l.p and sends NEWEPOCH to followers.                 
 LeaderHandleCEPOCH(i, j) ==
-        \* test restrictions
-        /\ tempMaxEpoch[i] <= 2
-        /\ Len(history[i]) <= 2
         /\ state[i] = ProspectiveLeader
         /\ msgs[j][i] /= << >>
         /\ msgs[j][i][1].mtype = CEPOCH
@@ -398,14 +387,11 @@ LeaderHandleCEPOCH(i, j) ==
               /\ UNCHANGED <<cepochRecv, tempMaxEpoch>>
         /\ cluster' = [cluster EXCEPT ![i] = IF j \in cluster[i] THEN cluster[i] ELSE cluster[i] \union {j}]
         /\ UNCHANGED <<serverVars, ackeRecv, ackldRecv, ackIndex, currentCounter, sendCounter, initialHistory,
-                       committedIndex, cepochSent, tempMaxLastEpoch, tempInitialHistory, recoveryVars, proposalMsgsLog>>
+                       committedIndex, cepochSent, tempMaxLastEpoch, tempInitialHistory, recoveryVars, proposalMsgsLog, testVars>>
 
 \* Here I decide to change leader's epoch in l12&l21, otherwise there may exist an old leader and
 \* a new leader who share the same expoch. So here I just change leaderEpoch, and use it in handling ACK-E.
 LeaderDiscovery1(i) ==
-        \* test restrictions
-        /\ tempMaxEpoch[i] <= 2
-        /\ Len(history[i]) <= 2
         /\ state[i] = ProspectiveLeader
         /\ cepochRecv[i] \in Quorums
         /\ leaderEpoch' = [leaderEpoch EXCEPT ![i] = tempMaxEpoch[i] + 1]
@@ -413,14 +399,11 @@ LeaderDiscovery1(i) ==
         /\ Broadcast(i, [mtype  |-> NEWEPOCH,
                          mepoch |-> leaderEpoch'[i]])
         /\ UNCHANGED <<state, currentEpoch, leaderOracle, history, cluster, ackeRecv, ackldRecv, ackIndex, currentCounter, sendCounter,
-                       initialHistory, commitIndex, committedIndex, cepochSent, tempVars, recoveryVars, proposalMsgsLog>>
+                       initialHistory, commitIndex, committedIndex, cepochSent, tempVars, recoveryVars, proposalMsgsLog, testVars>>
 
 \* In phase f12, follower receives NEWEPOCH. If e' > f.p then sends back ACKE,
 \* and ACKE contains f.a and hf to help pleader choose a newer history.
 FollowerDiscovery2(i, j) ==
-        \* test restrictions
-        /\ currentEpoch[i] <= 3
-        /\ Len(history[i]) <= 2
         /\ state[i] = Follower
         /\ msgs[j][i] /= << >>
         /\ msgs[j][i][1].mtype = NEWEPOCH
@@ -452,14 +435,11 @@ FollowerDiscovery2(i, j) ==
                  /\ Discard(j, i)
                  /\ UNCHANGED currentEpoch
         /\ UNCHANGED<<state, leaderEpoch, leaderOracle, history, leaderVars, 
-                      commitIndex, cepochSent, tempVars, recoveryVars, proposalMsgsLog>>
+                      commitIndex, cepochSent, tempVars, recoveryVars, proposalMsgsLog, testVars>>
 
 \* In phase l12, pleader receives ACKE from a quorum, 
 \* and select the history of one most up-to-date follower to be the initial history.          
 LeaderHandleACKE(i, j) ==
-        \* test restrictions
-        /\ currentEpoch[i] <= 3
-        /\ Len(history[i]) <= 2
         /\ state[i] = ProspectiveLeader
         /\ msgs[j][i] /= << >>
         /\ msgs[j][i][1].mtype = ACKE
@@ -482,12 +462,9 @@ LeaderHandleACKE(i, j) ==
                  /\ UNCHANGED<<tempMaxLastEpoch, tempInitialHistory, ackeRecv>>
         /\ Discard(j, i)
         /\ UNCHANGED <<serverVars, cluster, cepochRecv, ackldRecv, ackIndex, currentCounter, 
-                       sendCounter, initialHistory, committedIndex, cepochSent, tempMaxEpoch, recoveryVars, proposalMsgsLog>>
+                       sendCounter, initialHistory, committedIndex, cepochSent, tempMaxEpoch, recoveryVars, proposalMsgsLog, testVars>>
 
 LeaderDiscovery2Sync1(i) ==
-        \* test restrictions
-        /\ currentEpoch[i] <= 3
-        /\ Len(history[i]) <= 2
         /\ state[i] = ProspectiveLeader
         /\ ackeRecv[i] \in Quorums
         /\ currentEpoch'   = [currentEpoch   EXCEPT ![i]    = leaderEpoch[i]]
@@ -503,7 +480,7 @@ LeaderDiscovery2Sync1(i) ==
            IN proposalMsgsLog' = IF m \in proposalMsgsLog THEN proposalMsgsLog
                                  ELSE proposalMsgsLog \union {m}
         /\ UNCHANGED <<state, leaderEpoch, leaderOracle, commitIndex, cluster, cepochRecv,ackldRecv, 
-                       currentCounter, sendCounter, committedIndex, cepochSent, tempVars, recoveryVars>> 
+                       currentCounter, sendCounter, committedIndex, cepochSent, tempVars, recoveryVars, testVars>> 
                        
 \* Note1: Delete the change of commitIndex in LeaderDiscovery2Sync1 and FollowerSync1, then we can promise that
 \*        commitIndex of every server increases monotonically, except that some server halts and restarts.
@@ -514,9 +491,6 @@ LeaderDiscovery2Sync1(i) ==
 \* In phase f21, follower receives NEWLEADER. The follower updates its epoch and history,
 \* and sends back ACK-LD to pleader.
 FollowerSync1(i, j) ==
-        \* test restrictions
-        /\ currentEpoch[i] <= 3
-        /\ Len(history[i]) <= 2
         /\ state[i] = Follower
         /\ msgs[j][i] /= << >>
         /\ msgs[j][i][1].mtype = NEWLEADER
@@ -535,13 +509,10 @@ FollowerSync1(i, j) ==
                  /\ ~replyOk
                  /\ Discard(j, i)
                  /\ UNCHANGED <<currentEpoch, leaderEpoch, history>>
-        /\ UNCHANGED <<state, commitIndex, leaderOracle, leaderVars, tempVars, cepochSent, recoveryVars, proposalMsgsLog>>
+        /\ UNCHANGED <<state, commitIndex, leaderOracle, leaderVars, tempVars, cepochSent, recoveryVars, proposalMsgsLog, testVars>>
                  
 \* In phase l22, pleader receives ACK-LD from a quorum of followers, and sends COMMIT-LD to followers.
 LeaderHandleACKLD(i, j) ==
-        \* test restrictions
-        /\ currentEpoch[i] <= 3
-        /\ Len(history[i]) <= 2
         /\ state[i] = ProspectiveLeader
         /\ msgs[j][i] /= << >>
         /\ msgs[j][i][1].mtype = ACKLD
@@ -556,12 +527,9 @@ LeaderHandleACKLD(i, j) ==
                  /\ UNCHANGED <<ackldRecv, ackIndex>>
         /\ Discard(j, i)
         /\ UNCHANGED <<serverVars, cluster, cepochRecv, ackeRecv, currentCounter, 
-                       sendCounter, initialHistory, committedIndex, tempVars, cepochSent, recoveryVars, proposalMsgsLog>>
+                       sendCounter, initialHistory, committedIndex, tempVars, cepochSent, recoveryVars, proposalMsgsLog, testVars>>
 
 LeaderSync2(i) == 
-        \* test restrictions
-        /\ currentEpoch[i] <= 3
-        /\ Len(history[i]) <= 2
         /\ state[i] = ProspectiveLeader
         /\ ackldRecv[i] \in Quorums
         /\ commitIndex'    = [commitIndex    EXCEPT ![i] = Len(history[i])]
@@ -574,13 +542,10 @@ LeaderSync2(i) ==
                          mepoch |-> currentEpoch[i],
                          mlength|-> Len(history[i])])
         /\ UNCHANGED <<currentEpoch, leaderEpoch, leaderOracle, history, cluster, cepochRecv, 
-                       ackeRecv, ackIndex, initialHistory, tempVars, cepochSent, recoveryVars, proposalMsgsLog>>
+                       ackeRecv, ackIndex, initialHistory, tempVars, cepochSent, recoveryVars, proposalMsgsLog, testVars>>
 
 \* In phase f22, follower receives COMMIT-LD and delivers all unprocessed transaction.
 FollowerSync2(i, j) ==
-        \* test restrictions
-        /\ currentEpoch[i] <= 3
-        /\ Len(history[i]) <= 2
         /\ state[i] = Follower
         /\ msgs[j][i] /= << >>
         /\ msgs[j][i][1].mtype = COMMITLD
@@ -603,14 +568,13 @@ FollowerSync2(i, j) ==
                  /\ Discard(j, i)
                  /\ UNCHANGED commitIndex
         /\ UNCHANGED <<state, currentEpoch, leaderEpoch, leaderOracle, history, 
-                       leaderVars, tempVars, cepochSent, recoveryVars, proposalMsgsLog>>
+                       leaderVars, tempVars, cepochSent, recoveryVars, proposalMsgsLog, testVars>>
 
 ----------------------------------------------------------------------------
 \* In phase l31, leader receives client request and broadcasts PROPOSE.
 ClientRequest(i, v) ==
         \* test restrictions
-        /\ currentEpoch[i] <= 3
-        /\ Len(history[i]) <= 1
+        /\ Len(history[i]) < MaxTransactionNum
         /\ state[i] = Leader
         /\ currentCounter' = [currentCounter EXCEPT ![i] = currentCounter[i] + 1]
         /\ LET newTransaction == [epoch   |-> currentEpoch[i],
@@ -619,12 +583,9 @@ ClientRequest(i, v) ==
            IN /\ history'  = [history  EXCEPT ![i] = Append(history[i], newTransaction)]
               /\ ackIndex' = [ackIndex EXCEPT ![i][i] = Len(history'[i])] \* necessary, to push commitIndex
         /\ UNCHANGED <<msgs, state, currentEpoch, leaderEpoch, leaderOracle, commitIndex, cluster, cepochRecv,
-                       ackeRecv, ackldRecv, sendCounter, initialHistory, committedIndex, tempVars, cepochSent, recoveryVars, proposalMsgsLog>>
+                       ackeRecv, ackldRecv, sendCounter, initialHistory, committedIndex, tempVars, cepochSent, recoveryVars, proposalMsgsLog, testVars>>
 
 LeaderBroadcast1(i) ==
-        \* test restrictions
-        /\ currentEpoch[i] <= 3
-        /\ Len(history[i]) <= 2
         /\ state[i] = Leader
         /\ sendCounter[i] < currentCounter[i]
         /\ LET toBeSentCounter == sendCounter[i] + 1
@@ -637,13 +598,10 @@ LeaderBroadcast1(i) ==
               /\ LET m == [msource|->i, mtype|-> PROPOSE, mepoch|-> currentEpoch[i], mproposal|-> toBeSentEntry]
                  IN proposalMsgsLog' = proposalMsgsLog \union {m}
         /\ UNCHANGED <<serverVars,cepochRecv, cluster, ackeRecv, ackldRecv, ackIndex, 
-                       currentCounter, initialHistory, committedIndex, tempVars, recoveryVars, cepochSent>>
+                       currentCounter, initialHistory, committedIndex, tempVars, recoveryVars, cepochSent, testVars>>
 
 \* In phase f31, follower accepts proposal and append it to history.
 FollowerBroadcast1(i, j) ==
-        \* test restrictions
-        /\ currentEpoch[i] <= 3
-        /\ Len(history[i]) <= 2
         /\ state[i] = Follower
         /\ msgs[j][i] /= << >>
         /\ msgs[j][i][1].mtype = PROPOSE
@@ -662,14 +620,11 @@ FollowerBroadcast1(i, j) ==
                  /\ Discard(j, i)
                  /\ UNCHANGED history
         /\ UNCHANGED <<state, currentEpoch, leaderEpoch, leaderOracle, commitIndex, 
-                       leaderVars, tempVars, cepochSent, recoveryVars, proposalMsgsLog>>
+                       leaderVars, tempVars, cepochSent, recoveryVars, proposalMsgsLog, testVars>>
 
 \* In phase l32, leader receives ack from a quorum of followers to a certain proposal,
 \* and commits the proposal.
 LeaderHandleACK(i, j) ==
-        \* test restrictions
-        /\ currentEpoch[i] <= 3
-        /\ Len(history[i]) <= 2
         /\ state[i] = Leader
         /\ msgs[j][i] /= << >>
         /\ msgs[j][i][1].mtype = ACK
@@ -682,12 +637,9 @@ LeaderHandleACK(i, j) ==
                  /\ UNCHANGED ackIndex
         /\ Discard(j ,i)
         /\ UNCHANGED <<serverVars, cluster, cepochRecv, ackeRecv, ackldRecv,currentCounter, 
-                       sendCounter, initialHistory, committedIndex, tempVars, cepochSent, recoveryVars, proposalMsgsLog>>
+                       sendCounter, initialHistory, committedIndex, tempVars, cepochSent, recoveryVars, proposalMsgsLog, testVars>>
 
 LeaderAdvanceCommit(i) ==
-        \* test restrictions
-        /\ currentEpoch[i] <= 3
-        /\ Len(history[i]) <= 2
         /\ state[i] = Leader
         /\ commitIndex[i] < Len(history[i])
         /\ LET Agree(index)   == {i} \cup {k \in (Server\{i}): ackIndex[i][k] >= index}
@@ -696,12 +648,9 @@ LeaderAdvanceCommit(i) ==
                                                        ELSE commitIndex[i]
            IN commitIndex' = [commitIndex EXCEPT ![i] = newCommitIndex]
         /\ UNCHANGED <<state, currentEpoch, leaderEpoch, leaderOracle, history,
-                       msgs, leaderVars, tempVars, cepochSent, recoveryVars, proposalMsgsLog>>
+                       msgs, leaderVars, tempVars, cepochSent, recoveryVars, proposalMsgsLog, testVars>>
 
 LeaderBroadcast2(i) ==
-        \* test restrictions
-        /\ currentEpoch[i] <= 2
-        /\ Len(history[i]) <= 2
         /\ state[i] = Leader
         /\ committedIndex[i] < commitIndex[i]
         /\ LET newCommittedIndex == committedIndex[i] + 1
@@ -711,13 +660,10 @@ LeaderBroadcast2(i) ==
                                mcounter |-> history[i][newCommittedIndex].counter])
               /\ committedIndex' = [committedIndex EXCEPT ![i] = committedIndex[i] + 1]
         /\ UNCHANGED <<serverVars, cluster, cepochRecv, ackeRecv, ackldRecv, ackIndex, currentCounter, 
-                       sendCounter, initialHistory, tempVars, cepochSent, recoveryVars, proposalMsgsLog>>
+                       sendCounter, initialHistory, tempVars, cepochSent, recoveryVars, proposalMsgsLog, testVars>>
 
 \* In phase f32, follower receives COMMIT and commits transaction.
 FollowerBroadcast2(i, j) ==
-        \* test restrictions
-        /\ currentEpoch[i] <= 3
-        /\ Len(history[i]) <= 2
         /\ state[i] = Follower
         /\ msgs[j][i] /= << >>
         /\ msgs[j][i][1].mtype = COMMIT
@@ -728,7 +674,7 @@ FollowerBroadcast2(i, j) ==
            IN \/ /\ replyOk
                  /\ LET infoOk == /\ Len(history[i]) >= msg.mindex
                                   /\ \/ /\ msg.mindex > 0
-                                        /\ history[i][msg.mindex].epoch = msg.mepoch
+                                        /\ history[i][msg.mindex].epoch   = msg.mepoch
                                         /\ history[i][msg.mindex].counter = msg.mcounter
                                      \/ msg.mindex = 0
                     IN \/ \* new COMMIT - commit transaction in history
@@ -746,7 +692,7 @@ FollowerBroadcast2(i, j) ==
                  /\ Discard(j, i)
                  /\ UNCHANGED commitIndex
         /\ UNCHANGED <<state, currentEpoch, leaderEpoch, history, leaderOracle, 
-                       leaderVars, tempVars, cepochSent, recoveryVars, proposalMsgsLog>>
+                       leaderVars, tempVars, cepochSent, recoveryVars, proposalMsgsLog, testVars>>
 
 ----------------------------------------------------------------------------
 \* There may be two ways to make sure all followers as up-to-date as the leader.
@@ -758,9 +704,6 @@ FollowerBroadcast2(i, j) ==
 
 \* In phase l33, upon receiving CEPOCH, leader l proposes back NEWEPOCH and NEWLEADER.
 LeaderHandleCEPOCHinPhase3(i, j) ==
-        \* test restrictions
-        /\ currentEpoch[i] <= 3
-        /\ Len(history[i]) <= 2
         /\ state[i] = Leader
         /\ msgs[j][i] /= << >>
         /\ msgs[j][i][1].mtype = CEPOCH
@@ -771,16 +714,16 @@ LeaderHandleCEPOCHinPhase3(i, j) ==
                                  [mtype           |-> NEWLEADER,
                                   mepoch          |-> currentEpoch[i],
                                   minitialHistory |-> history[i]])
+                 /\ LET m == [msource|->i,mtype|->NEWLEADER,mepoch|->currentEpoch[i],mproposals|->history[i]]
+                    IN proposalMsgsLog' = IF m \in proposalMsgsLog THEN proposalMsgsLog
+                                          ELSE proposalMsgsLog \union {m}
               \/ /\ currentEpoch[i] < msg.mepoch
-                 /\ UNCHANGED msgs
-        /\ UNCHANGED <<serverVars, leaderVars, tempVars, cepochSent, recoveryVars, proposalMsgsLog>>
+                 /\ UNCHANGED <<msgs, proposalMsgsLog>>
+        /\ UNCHANGED <<serverVars, leaderVars, tempVars, cepochSent, recoveryVars, testVars>>
         
 \* In phase l34, upon receiving ack from f of the NEWLEADER, it sends a commit message to f.
 \* Leader l also makes Q := Q \union {f}.
 LeaderHandleACKLDinPhase3(i, j) ==
-        \* test restrictions
-        /\ currentEpoch[i] <= 3
-        /\ Len(history[i]) <= 2
         /\ state[i] = Leader
         /\ msgs[j][i] /= << >>
         /\ msgs[j][i][1].mtype = ACKLD
@@ -799,7 +742,7 @@ LeaderHandleACKLDinPhase3(i, j) ==
         /\ cluster' = [cluster EXCEPT ![i] = IF j \in cluster[i] THEN cluster[i]
                                                                  ELSE cluster[i] \union {j}]
         /\ UNCHANGED <<serverVars, cepochRecv, ackeRecv, ackldRecv, currentCounter, sendCounter, 
-                       initialHistory, committedIndex, tempVars, cepochSent, recoveryVars, proposalMsgsLog>>
+                       initialHistory, committedIndex, tempVars, cepochSent, recoveryVars, proposalMsgsLog, testVars>>
 
 \* To ensure any follower can find the correct leader, the follower should modify leaderOracle
 \* anytime when it receive messages from leader, because a server may restart and join the cluster Q
@@ -814,9 +757,6 @@ LeaderHandleACKLDinPhase3(i, j) ==
 \*    which means there are some transactions before mindex miss. Here we choose to send CEPOCH 
 \*    again, to receive the newest history from leader.
 BecomeFollower(i) ==
-        \* test restrictions
-        /\ currentEpoch[i] <= 3
-        /\ Len(history[i]) <= 2
         /\ state[i] /= Follower
         /\ \E j \in Server \ {i}: /\ msgs[j][i] /= << >>   
                                   /\ msgs[j][i][1].mtype /= RECOVERYREQUEST
@@ -835,13 +775,10 @@ BecomeFollower(i) ==
                                         /\ Reply(i, j, [mtype |-> CEPOCH,
                                                         mepoch|-> currentEpoch[i]])
                                         \* Here we should not use Discard.
-        /\ UNCHANGED <<leaderEpoch, history, commitIndex, leaderVars, tempVars, cepochSent, recoveryVars, proposalMsgsLog>>
+        /\ UNCHANGED <<leaderEpoch, history, commitIndex, leaderVars, tempVars, cepochSent, recoveryVars, proposalMsgsLog, testVars>>
                                         
 ----------------------------------------------------------------------------
 DiscardStaleMessage(i) ==
-        \* test restrictions
-        /\ currentEpoch[i] <= 3
-        /\ Len(history[i]) <= 2
         /\ \E j \in Server \ {i}: /\ msgs[j][i] /= << >>
                                   /\ msgs[j][i][1].mtype /= RECOVERYREQUEST
                                   /\ msgs[j][i][1].mtype /= RECOVERYRESPONSE
@@ -871,7 +808,7 @@ DiscardStaleMessage(i) ==
                                                           \/ msg.mtype = PROPOSE
                                                           \/ msg.mtype = COMMIT
                                   /\ Discard(j ,i)
-        /\ UNCHANGED <<serverVars, leaderVars, tempVars, cepochSent, recoveryVars, proposalMsgsLog>>
+        /\ UNCHANGED <<serverVars, leaderVars, tempVars, cepochSent, recoveryVars, proposalMsgsLog, testVars>>
 
 
 ----------------------------------------------------------------------------
@@ -1020,7 +957,7 @@ Liveness property
 *) 
 =============================================================================
 \* Modification History
-\* Last modified Mon May 03 21:57:22 CST 2021 by Dell
+\* Last modified Wed May 05 22:09:48 CST 2021 by Dell
 \* Created Sat Dec 05 13:32:08 CST 2020 by Dell
 
 
