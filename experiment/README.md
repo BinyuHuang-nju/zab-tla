@@ -17,7 +17,7 @@ We try to let models can be run completely. We constrain the number of election[
 
 
 ## Verification results of model checking  
-|  Mode  |     TLC model         |    Diameter   |     num of states  | time of checking(hh:mm:ss)   |
+|  Mode  |     TLC model         |    Diameter   |     num of states  | time of checking(hh:mm:ss) |
 | ----- | ---------------------- | ------------- | ------------------ | ------------------ |
 | BFS   | (2 servers,3 rounds,2 transactions)    |     59   |  7758091583 |  17:28:17|
 | Simulation | (2 servers,3 rounds,2 transactions)   |   -|  6412825222| 17:07:20  |
@@ -29,4 +29,10 @@ We try to let models can be run completely. We constrain the number of election[
 | Simulation | (3 servers,3 rounds,2 transactions)    |  -  |  6254964039   | 15:08:42 |
 | BFS    |  (4 servers,3 rounds,2 transactions)    |    16    | 5634112480  |15:42:09 |
 | Simulation | (4 servers,3 rounds,2 transactions)    |  -  |  3883461291   | 15:52:03 |
+
+## Verification results with parameters (count of servers, MaxTotalRestartNum, MaxElectionNum, MaxTransactionNum)
+|  Mode  |     TLC model         |    Diameter   |     num of states  | time of checking(hh:mm:ss) |
+| ----- | ---------------------- | ------------- | ------------------ | ------------------ |
+| BFS   | (2,2,3,2,termination) |     47   |  2518479    |  00:00:31|
+| BFS   | (3,1,1,2)             |     45   |  9602018536 |  31:01:57|
 

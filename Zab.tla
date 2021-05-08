@@ -391,26 +391,28 @@ FollowerDiscovery2(i, j) ==
                                        mepoch     |-> msg.mepoch,
                                        mlastEpoch |-> leaderEpoch[i],
                                        mhf        |-> history[i]])
+                       /\ cepochSent' = [cepochSent EXCEPT ![i] = TRUE]
                     \/ /\ leaderOracle[i] /= j
                        /\ Discard(j ,i)
-                       /\ UNCHANGED currentEpoch
+                       /\ UNCHANGED <<currentEpoch, cepochSent>>
               \/ /\ currentEpoch[i] = msg.mepoch
                  /\ \/ /\ leaderOracle[i] = j
                        /\ Reply(i, j, [mtype      |-> ACKE,
                                        mepoch     |-> msg.mepoch,
                                        mlastEpoch |-> leaderEpoch[i],
                                        mhf        |-> history[i]])
+                       /\ cepochSent' = [cepochSent EXCEPT ![i] = TRUE]
                        /\ UNCHANGED currentEpoch
                     \/ \* It may happen when a leader do not update new epoch to all followers in Q, and a new election begins
                        /\ leaderOracle[i] /= j
                        /\ Discard(j, i)
-                       /\ UNCHANGED currentEpoch
+                       /\ UNCHANGED <<currentEpoch, cepochSent>>
               \/ \* stale NEWEPOCH - diacard
                  /\ currentEpoch[i] > msg.mepoch
                  /\ Discard(j, i)
-                 /\ UNCHANGED currentEpoch
+                 /\ UNCHANGED <<currentEpoch, cepochSent>>
         /\ UNCHANGED<<state, leaderEpoch, leaderOracle, history, leaderVars, 
-                      commitIndex, cepochSent, tempVars, recoveryVars, proposalMsgsLog>>
+                      commitIndex, tempVars, recoveryVars, proposalMsgsLog>>
 
 \* In phase l12, pleader receives ACKE from a quorum, 
 \* and select the history of one most up-to-date follower to be the initial history.          
@@ -578,18 +580,28 @@ FollowerBroadcast1(i, j) ==
         /\ state[i] = Follower
         /\ msgs[j][i] /= << >>
         /\ msgs[j][i][1].mtype = PROPOSE
-        /\ LET msg == msgs[j][i][1]
+        /\ LET msg     == msgs[j][i][1]
                replyOk == /\ currentEpoch[i] = msg.mepoch
                           /\ leaderOracle[i] = j
-           IN \/ \* It should be that \/ msg.mproposal.counter = 1 
-                 \*                   \/ msg.mrpoposal.counter = history[Len(history)].counter + 1
-                 /\ replyOk
-                 /\ history' = [history EXCEPT ![i] = Append(history[i], msg.mproposal)]
-                 /\ Reply(i, j, [mtype  |-> ACK,
-                                 mepoch |-> currentEpoch[i],
-                                 mindex |-> Len(history'[i])])
-              \/ \* If happens, /= must be >, namely a stale leader sends it.
-                 /\ ~replyOk
+               infoOk  == \/ /\ msg.mproposal.counter = 1   \* the first PROPOSE in this epoch
+                             /\ \/ Len(history[i]) = 0
+                                \/ /\ Len(history[i]) > 0
+                                   /\ history[i][Len(history[i])].epoch < msg.mepoch
+                          \/ /\ msg.mproposal.counter > 1   \* not the first PROPOSE in this epoch
+                             /\ Len(history[i]) > 0
+                             /\ history[i][Len(history[i])].epoch = msg.mepoch
+                             /\ history[i][Len(history[i])].counter = msg.mproposal.counter - 1
+           IN \/ /\ replyOk
+                 /\ \/ /\ infoOk
+                       /\ history' = [history EXCEPT ![i] = Append(history[i], msg.mproposal)]
+                       /\ Reply(i, j, [mtype  |-> ACK,
+                                       mepoch |-> currentEpoch[i],
+                                       mindex |-> Len(history'[i])])
+                    \/ /\ ~infoOk
+                       /\ Reply(i, j, [mtype |-> CEPOCH,
+                                       mepoch|-> currentEpoch[i]])
+                       /\ UNCHANGED history
+              \/ /\ ~replyOk
                  /\ Discard(j, i)
                  /\ UNCHANGED history
         /\ UNCHANGED <<state, currentEpoch, leaderEpoch, leaderOracle, commitIndex, 
@@ -910,7 +922,7 @@ PrimaryIntegrity == \A i, j \in Server: /\ state[i] = Leader
 
 =============================================================================
 \* Modification History
-\* Last modified Wed May 05 22:11:47 CST 2021 by Dell
+\* Last modified Sat May 08 20:33:56 CST 2021 by Dell
 \* Created Sat Dec 05 13:32:08 CST 2020 by Dell
 
 

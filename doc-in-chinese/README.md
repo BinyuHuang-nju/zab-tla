@@ -32,10 +32,10 @@ Zab使用的通信信道是TCP信道，所以消息传递不会出现丢包、�
 此外，准领导者是根据论文*Step l.1.1*中的*CEPOCH*的接收信息来确定它的集群*Q*。那么在Phase1(*Discovery*)初始阶段，*Q*是一个不满足多数派性质的集合(set)，这可能会触发动作*LeaderTimeout*来进行一轮新的选主(leader election)。故我们在动作*Election*中先确定了*Q*，使其在这轮中始终满足多数派性质。
 
 
-### Issue 2 Line: 417, Action: LeaderHandleACKE; Line: 442, Action: LeaderDiscovery2Sync1
+### Issue 2 Line: 419, Action: LeaderHandleACKE; Line: 444, Action: LeaderDiscovery2Sync1
 在论文*Step l.1.2*中，准领导者接收到*Q*中每一个跟随者的关于*NEWEPOCH*的回复后在此选出最佳的数据进行更新。我们认为这个条件比较苛刻，在规约中当准领导者接收到一个多数派的跟随者后就会选出最佳的数据进行更新。无论是选择论文中的做法，还是本实验中的做法，对算法的正确性不构成威胁。
 
-### Issue 3 Line: 465, Action: FollowerSync1
+### Issue 3 Line: 470, Action: FollowerSync1
 在论文*Step f.2.1*中，由于在一般情况下，*Q*中的每个跟随者会在接收到*NEWLEADER*之前先接收到*NEWEPOCH*，故节点*i*的*currentEpoch[i]*与*NEWLEADER*中的epoch是相等的。在某些极端情况下，会有节点*i*的*currentEpoch[i]*比*NEWLEADER*中的epoch大。我们选择丢弃这样的比自己的epoch小的消息，论文中选择的是进行新一轮的选主。
 
 
@@ -53,7 +53,12 @@ Zab使用的通信信道是TCP信道，所以消息传递不会出现丢包、�
 ### Issue 5 Line: 340, Action: LeaderHandleCEPOCH
 论文*Step l.3.3*和*Stepl.3.4*仅描述了领导者接收到*CEPOCH*和*ACK-LD*时的处理，而没有描述在Phase1、Phase2阶段的准领导者接收到来自不属于*Q*的节点的*CEPOCH*和*ACK-LD*的处理，我们考虑了这种情况下的处理方式。当准领导者接收到来自节点*i*的*CEPOCH*，若*i*不属于*Q*，则先将*i*加入*Q*(在Phase3阶段的领导者是接收到*ACK-LD*时将*i*加入到*Q*)。随后准领导者会判断自己是否已经广播过*NEWEPOCH*和*NEWLEADER*，来确保新加入*Q*的成员不会错失消息。这里我们不需要判断准领导者是否广播过*COMMIT-LD*，因为广播了*COMMIT-LD*后状态会转为*Leader*。
 
-### Issue 6 Line: 636, Action: FollowerBroadcast2
+### Issue 6 Line: 579, Action: FollowerBroadcast1
+事实上，跟随者仅在接收到*COMMIT*时做判断是否该事务合法是不够的，在接收到*PROPOSE*时跟随者也应该对消息做出判断，而不是直接将事务加入到history中并回复*ACK*，这会导致*ackIndex*的改变，并可能导致*commitIndex*的改变。下面给出一个由于跟随者没有在接收到*PROPOSE*时做判断，从而出错的情况。
+![pic wrong commitIndex](picture/pic_double_same_transaction.PNG)  
+因此，我们在跟随者接收到*PROPOSE*进行判断，如果该事务不满足添加到历史中的条件，则回复*CEPOCH*请求更新日志。
+
+### Issue 7 Line: 651, Action: FollowerBroadcast2
 我们考虑，当一个节点从选主阶段开始就在集群中，它顺序接收来自领导者的消息，那么它每次收到的*COMMIT*中允许被提交的事务一定存在于本地的*history*中。但是对于后加入集群的节点，这样的性质不一定一直被满足。  
 我们考虑这样的情况，某一节点*j*找到领导者*i*后，向*i*发送*CEPOCH*以加入集群，*i*与*j*随后正常交互，在收到*ACK-LD*后领导者将*j*加入集群*Q*中。但在领导者*i*发送*NEWLEADER*后，*i*收到某个客户端请求,修改了*history*并广播一个*PROPOSE*类型的消息，这对*j*来说是屏蔽的，因为此时*j*还没有加入集群*Q*。但是在*j*加入集群后，*j*收到了该请求的*COMMIT*，但该可被提交的事务不能在它的*history*中被找到。流程如下图所示。
 ![pic recovery](picture/pic_recovery.PNG)  
