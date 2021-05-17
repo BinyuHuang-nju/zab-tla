@@ -33,14 +33,14 @@ We need to set CONSTANT *Value* as a symmetrical model value (such as <symmetric
 We remove *'Deadlock'* option.  
 We add invariants defined in spec into *'Invariants'* to check whether the model will reach an illogical state, including *Leadership*, *PrefixConsistency*, *Integrity*, *Agreement*, *TotalOrder*, *LocalPrimaryOrder*, *GlobalPriamryOrder*, and *PrimaryIntegrity*.  
 Let me describe these invariants here briefly. Except for the first two, all invariants are defined in paper.  
-	-	Lerdership: There is most one leader(prospective leader) in a certain epoch.  
-	-	PrefixConsistency: Transactions that have been delivered as a prefix in history are the same in any server.  
-	-	Integrity: If some follower delivers one transaction, some primary must have broadcast it.  
-	-	Agreement: If some follower *f<sub>1</sub>* delivers transaction *a* and some follower *f<sub>2</sub>* delivers transaction *b*, then *f<sub>2</sub>* delivers *a* or *f<sub>1</sub>* delivers *b*.  
-	-	TotalOrder: If some server delivers *a* before *b*, then any server that delivers *b* must also deliver *a* and deliver *a* before *b*.  
-	-	LocalPrimaryOrder: If a primary broadcasts *a* before it broadcasts *b*, then a follower that delivers *b* must also deliver *a* before *b*.  
-	-	GlobalPrimaryOrder: A server *f* delivers both *a* with epoch *e* and *b* with epoch *e'*, and *e* < *e'*, then *f* must deliver *a* before *b*.  
-	-	PrimaryIntegrity: If primary *p* broadcasts *a* and some follower *f* delivers *b* such that *b* has epoch smaller than epoch of *p*, then *p* must deliver *b* before it broadcasts *a*.  
+	-	**Lerdership**: There is most one leader(prospective leader) in a certain epoch.  
+	-	**PrefixConsistency**: Transactions that have been delivered as a prefix in history are the same in any server.  
+	-	**Integrity**: If some follower delivers one transaction, some primary must have broadcast it.  
+	-	**Agreement**: If some follower *f<sub>1</sub>* delivers transaction *a* and some follower *f<sub>2</sub>* delivers transaction *b*, then *f<sub>2</sub>* delivers *a* or *f<sub>1</sub>* delivers *b*.  
+	-	**TotalOrder**: If some server delivers *a* before *b*, then any server that delivers *b* must also deliver *a* and deliver *a* before *b*.  
+	-	**LocalPrimaryOrder**: If a primary broadcasts *a* before it broadcasts *b*, then a follower that delivers *b* must also deliver *a* before *b*.  
+	-	**GlobalPrimaryOrder**: A server *f* delivers both *a* with epoch *e* and *b* with epoch *e'*, and *e* < *e'*, then *f* must deliver *a* before *b*.  
+	-	**PrimaryIntegrity**: If primary *p* broadcasts *a* and some follower *f* delivers *b* such that *b* has epoch smaller than epoch of *p*, then *p* must deliver *b* before it broadcasts *a*.  
 
 ### Assign additional TLC options
 We set number of worker threads as 10(if unavailable on your system, just decrease it).  
