@@ -3,6 +3,8 @@
 ## Overview
 This project is devoted to providing formal specification and verification using TLA+ for the Zookeeper Atomic Broadcast(Zab) consensus protocol proposed in *Junqueira F P, Reed B C, Serafini M. Zab: High-performance broadcast for primary-backup systems[C]//2011 IEEE/IFIP 41st International Conference on Dependable Systems & Networks (DSN). IEEE, 2011: 245-256*.  
 
+Currently we are devoted to writing spec for ZAB 1.0, which represents new version of ZAB.  
+
 We have made a formal [specification](Zab.tla) for Zab using TLA+ toolbox, and we have done a certain scale of model checking to verify the correctness of Zab.
 
 Due to the simplification of Zab algorithm description in the paper, some details in specification were modified and added. If you have any question, please let us know.
@@ -13,11 +15,40 @@ You can find this document in chinese in [doc-in-chinsese](doc-in-chinese/README
 TLA+ toolbox version 1.7.0
 
 ## Run
-Create specification and run models in the usual way.  
-For example, if you want to check model with 3 servers, 2 rounds and 2 delivered transactions, you can create spec [experiment/ZabWithQTest.tla](experiment/ZabWithQTest.tla) and set *Server* as symmetrical model value {s1,s2,s3}.   
-You need to change the number in the first two lines in every action in this spec when you want to run models with different number of rounds or length of history. In fact, it is unnecessary to modify all actions. Just modifying parameter *Len(history[i])* in *ClientRequest* can control the number of transactions broadcast. Just modifying parameter *currentEpoch[i]* in *LeaderDiscovery1* can control the number of rounds of effective leader election.(What I mean effective is that leader determines its new epoch by broadcasting *NEWEPOCH*)
+Create specification [experiment/ZabWithQTest.tla](experiment/ZabWithQTest.tla) or [experiment/ZabWithQTest2.tla](experiment/ZabWithQTest2.tla) and run models in the following way.  
+### Assign constants
+After creating a new model and choosing *Temporal formula* with value *spec*, we first assign most of  constants.  
+We need to set CONSTANTS about server states as model value, including *Follower*, *Leader*, and *ProspectiveLeader*.  
+We need to set CONSTANTS about message types as model value, including *CEPOCH*, *NEWEPOCH*, *ACKE*, *NEWLEADER*, *ACKLD*, *COMMITLD*, *PROPOSE*, *ACK*, *COMMIT*, *RECOVERYREQUEST*, and *RECOVERYRESPONSE*.  
+We need to set CONSTANT *Value* as a symmetrical model value (such as <symmetrical\>{v1,v2}) to compress state space.
 
+### Assign invariants
+We remove *'Deadlock'* option.  
+We add invariants defined in spec into *'Invariants'* to check whether the model will reach an illogical state, including *Leadership*, *PrefixConsistency*, *Integrity*, *Agreement*, *TotalOrder*, *LocalPrimaryOrder*, *GlobalPriamryOrder*, and *PrimaryIntegrity*.  
+Let me describe these invariants here briefly. Except for the first two, all invariants are defined in paper.  
+	-	Lerdership: There is most one leader(prospective leader) in a certain epoch.  
+	-	PrefixConsistency: Transactions that have been delivered as a prefix in history are the same in any server.  
+	-	Integrity: If some follower delivers one transaction, some primary must have broadcast it.  
+	-	Agreement: If some follower *f<sub>1</sub>* delivers transaction *a* and some follower *f<sub>2</sub>* delivers transaction *b*, then *f<sub>2</sub>* delivers *a* or *f<sub>1</sub>* delivers *b*.  
+	-	TotalOrder: If some server delivers *a* before *b*, then any server that delivers *b* must also deliver *a* and deliver *a* before *b*.  
+	-	LocalPrimaryOrder: If a primary broadcasts *a* before it broadcasts *b*, then a follower that delivers *b* must also deliver *a* before *b*.  
+	-	GlobalPrimaryOrder: A server *f* delivers both *a* with epoch *e* and *b* with epoch *e'*, and *e* < *e'*, then *f* must deliver *a* before *b*.  
+	-	PrimaryIntegrity: If primary *p* broadcasts *a* and some follower *f* delivers *b* such that *b* has epoch smaller than epoch of *p*, then *p* must deliver *b* before it broadcasts *a*.  
+
+### Assign additional TLC options
+We set number of worker threads as 10(if unavailable on your system, just decrease it).  
+We can choose checking mode from *Model-checking mode* and *simulation mode*.  
+	-	Model-checking mode: It is a traverse method like BFS. Diameter in results represent the maximum depth when traversing. All intermediate results will be saved as binary files locally and occupy a large space if running time is long.  
+	-	Simulation mode: Everytime TLC randomly chooses a path and run through it until reaching termination or reaching maximum length of the trace, and randomly chooses another path. Currently we set *Maximum length of the trace* as 100.  
+
+### Assign left constants
+Finally we need to assign CONSTANTS *Server* as a symmetrical model value, and assign  *MaxTotalRestartNum*, *MaxElectionNum*, and *MaxTransactionNum* as ordinary assignment. Their meanings are obvious, and we recommend setting *Server* as {s1,s2} or {s1,s2,s3}, setting *MaxTotalRestartNum*, *MaxElectionNum*, and *MaxTransactionNum* between 1 and 3.
+
+
+### Results
 You can find our [result](experiment/README.md) of verification using model checking of TLA+.
+
+
 
 ## Abstraction in specification
 >The Zab protocol in paper dose not focus on leader election, so we abstract the process of leader election in spec. Our spec can simulate non-Byzantion faults. In addition, what we pay attention to is consistency of system state, and we abstract or omit some parts in actual implementation, such as replying results to client.

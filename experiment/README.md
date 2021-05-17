@@ -13,7 +13,8 @@ The machine configuration used in the experiment is 2.40 GHz, 10-core CPU, 64GB 
 ## State space constraints in model checking
 
 Due to the state space explosion in model checking and the complex actions of Zab protocol, as well as unlimited number of rounds and unlimited length of history, it is impossible to traverse all states.  
-We try to let models can be run completely. We constrain the number of election[1], the number of restart from all servers[2], and the number of transactions delivered[3]. We prospectively add limits in *Election* to constrain [1], add limits in *Restart* and *RecoveryAfterRestart* to constrain [2], add limits in *ClientRequest* to constrain [3].
+We try to let models can be run completely. We constrain the number of election[1], the number of restart from all servers[2], and the number of transactions delivered[3].  
+ We prospectively add limits in *Election* to constrain [1], add limits in *Restart* and *RecoveryAfterRestart* to constrain [2], add limits in *ClientRequest* to constrain [3].
 
 
 ## Verification results of model checking  
