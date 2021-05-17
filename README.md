@@ -11,13 +11,20 @@ Due to the simplification of Zab algorithm description in the paper, some detail
 
 You can find this document in chinese in [doc-in-chinsese](doc-in-chinese/README.md).
 
+
 ## Requirements
 TLA+ toolbox version 1.7.0
 
 ## Run
 Create specification [experiment/ZabWithQTest.tla](experiment/ZabWithQTest.tla) or [experiment/ZabWithQTest2.tla](experiment/ZabWithQTest2.tla) and run models in the following way.  
+These two spec files are equivalent. Through ZabWithQTest2.tla, we can understand spec better, and understand how we verify correctness of ZAB by extending Zab Module. Through ZabWithQTest2.tla, we can clearly divide spec into five modules, which are:  
+- Phase0. Leader Election  
+- Phase1. Discovery  
+- Phase2. Synchronization  
+- Phase3. Broadcast  
+- Recovery Module  
 ### Assign constants
-After creating a new model and choosing *Temporal formula* with value *spec*, we first assign most of  constants.  
+After creating a new model and choosing *Temporal formula* with value *Spec*(*SpecT* in ZabWithQTest2.tla), we first assign most of  constants.  
 We need to set CONSTANTS about server states as model value, including *Follower*, *Leader*, and *ProspectiveLeader*.  
 We need to set CONSTANTS about message types as model value, including *CEPOCH*, *NEWEPOCH*, *ACKE*, *NEWLEADER*, *ACKLD*, *COMMITLD*, *PROPOSE*, *ACK*, *COMMIT*, *RECOVERYREQUEST*, and *RECOVERYRESPONSE*.  
 We need to set CONSTANT *Value* as a symmetrical model value (such as <symmetrical\>{v1,v2}) to compress state space.
