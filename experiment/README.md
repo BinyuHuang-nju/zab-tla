@@ -34,6 +34,6 @@ We try to let models can be run completely. We constrain the number of election[
 ## Verification results with parameters (count of servers, MaxTotalRestartNum, MaxElectionNum, MaxTransactionNum)
 |  Mode  |     TLC model         |    Diameter   |     num of states  | time of checking(hh:mm:ss) |
 | ----- | ---------------------- | ------------- | ------------------ | ------------------ |
-| BFS   | (2,2,3,2,termination) |     47   |  2518479    |  00:00:31|
+| BFS   | (2,2,3,2,termination) |     55   |  10772649   |  00:02:21|
 | BFS   | (3,1,1,2)             |     45   |  9602018536 |  31:01:57|
 
