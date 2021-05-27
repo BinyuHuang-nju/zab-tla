@@ -112,7 +112,7 @@ VARIABLE tempMaxLastEpoch
 VARIABLE tempInitialHistory
 
 \* the set of all broadcast messages whose tpye is proposal that any leader has sent, only used in verifying properties.
-\* So the variable will only be changed in transition LeaderBroadcast1.
+\* So the variable will only be changed when leader broadcasts/sends NEWLEADER or PROPOSAL.
 VARIABLE proposalMsgsLog
 
 \* Helper set for server who restarts to collect which servers has responded to it.
@@ -223,7 +223,7 @@ Election(i, Q) ==
 \* The action should be triggered once at the beginning.
 \* Because we abstract the part of leader election, we can use global variables in this action.
 InitialElection(i, Q) ==
-        /\ \A s \in Server: state[i] = Follower /\ leaderOracle[i] = NullPoint
+        /\ \A s \in Server: state[s] = Follower /\ leaderOracle[s] = NullPoint
         /\ Election(i, Q)
         /\ UNCHANGED <<currentEpoch, history, commitIndex, currentCounter, sendCounter, recoveryVars, proposalMsgsLog>>
 
@@ -922,7 +922,7 @@ PrimaryIntegrity == \A i, j \in Server: /\ state[i] = Leader
 
 =============================================================================
 \* Modification History
-\* Last modified Sat May 08 20:33:56 CST 2021 by Dell
+\* Last modified Thu May 27 22:01:12 CST 2021 by Dell
 \* Created Sat Dec 05 13:32:08 CST 2020 by Dell
 
 
