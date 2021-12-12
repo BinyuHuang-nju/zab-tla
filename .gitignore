@@ -41,5 +41,7 @@ experiment/
 schedule
 Zab_oldversion.tla
 Zab_oldversion.pdf
+doc-in-chinese/picture/pic_double_same_transaction.PNG
+doc-in-chinese/picture/pic_recovery.PNG
 
 

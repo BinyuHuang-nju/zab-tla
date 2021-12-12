@@ -16,7 +16,7 @@ You can find this document in chinese in [doc-in-chinsese](doc-in-chinese/README
 TLA+ toolbox version 1.7.0
 
 ## Run
-Create specification [Zab.tla](Zabtla) and run models in the following way.  
+Create specification [Zab.tla](Zab.tla) and run models in the following way.  
 We can clearly divide spec into five modules, which are:  
 - Phase0. Leader Election  
 - Phase1. Discovery  
@@ -86,7 +86,7 @@ Except for *NEWEPOCH*, *NEWLEADER* and *COMMITLD*, leader has to broadcst *PROPO
 ![pic_commit_bug](doc-in-chinese/picture/pic_commit_wrong.png)    
 It is because follower will not receive *PROPOSE* until reiceiving *COMMITLD*, according to *step l.3.4* in paper.  
 What we do in spec is when leader broadcasts *PROPOSE*, *Q* is *ackeRecv*, and when leader broadcasts *COMMIT*, *Q* is *ackldRecv*. So any follower that receives *PROPOSE* must have received *NEWLEADER* before, and any follower that receives *COMMIT* must have received *COMMITLD* before.   
-So we should not directly reply *NEWEPOCH* and *NEWLEADER* when leader is in *BROADCAST* in *step l.3.3*. As the same in the previous stages, leader will not reply *NEWLEADER* until receiving *ACKEPOCH*.  
+So we should not directly reply *NEWEPOCH* and *NEWLEADER* when leader receives *CEPOCH* in *BROADCAST*， described in *step l.3.3*. As the same in the previous stages, leader will not reply *NEWLEADER* until receiving *ACKEPOCH*.  
 So here, *COMMITLD* is a commit of txns in *NEWLEADER* and perhaps several *PROPOSE*. Because follower may reply *ACKLD* late, and it may reiceive several messages of *PROPOSE* but no *COMMIT* of corresponding *PROPOSE*. And we successfully find a bug of pseudocode of the paper.
 
 ### (Issue 4) Line: 921, Action: FollowerProcessPROPOSE
