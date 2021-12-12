@@ -37,7 +37,7 @@
 *.toolbox
 ZabWithoutQ.tla
 ZabWithoutQ.pdf
-experiment/result/
+experiment/
 schedule
 Zab_oldversion.tla
 Zab_oldversion.pdf
